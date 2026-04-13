@@ -26,9 +26,10 @@ async function main() {
   loadEnvFile();
   const config = await buildConfigFromEnv();
   const app = createApp(config);
+  const host = '0.0.0.0';
 
-  app.listen(config.port, () => {
-    console.log(`BSM API listening on port ${config.port}`);
+  app.listen(config.port, host, () => {
+    console.log(`BSM API listening on ${host}:${config.port}`);
   });
 }
 
