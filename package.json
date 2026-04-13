@@ -1,0 +1,12 @@
+{
+  "name": "bsm-order-management-dashboard",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@10.7.0",
+  "scripts": {
+    "build": "pnpm -r build",
+    "dev": "pnpm --filter @bsm/api dev",
+    "test": "pnpm --filter @bsm/api test",
+    "test:run": "pnpm --filter @bsm/api test:run"
+  }
+}
