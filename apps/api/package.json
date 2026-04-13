@@ -9,12 +9,15 @@
     "test": "vitest",
     "test:run": "vitest run",
     "prisma:generate": "prisma generate",
-    "prisma:migrate": "prisma migrate dev"
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:migrate:dev": "prisma migrate dev",
+    "prisma:migrate:deploy": "prisma migrate deploy"
   },
   "dependencies": {
     "@bsm/shared": "workspace:*",
     "@prisma/client": "^6.6.0",
     "bcryptjs": "^3.0.2",
+    "dotenv": "^16.6.1",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
     "express": "^4.21.2",

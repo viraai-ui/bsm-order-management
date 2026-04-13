@@ -11,9 +11,15 @@ import { AuthService, type AuthConfig } from './lib/auth.js';
 import { prisma } from './lib/prisma.js';
 import { PrismaDispatchRepository, type DispatchRepository } from './repositories/dispatchRepository.js';
 
+const postgresUrlSchema = z.string().url().refine((value) => value.startsWith('postgres://') || value.startsWith('postgresql://'), {
+  message: 'Must be a postgres connection string'
+});
+
 const envSchema = z.object({
   PORT: z.coerce.number().default(3001),
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
+  DATABASE_URL: postgresUrlSchema,
+  DIRECT_DATABASE_URL: postgresUrlSchema.optional(),
   CORS_ORIGIN: z.string().default('http://localhost:5173'),
   JWT_SECRET: z.string().min(12),
   AUTH_SEED_EMAIL: z.string().email().default('admin@bsm.local'),

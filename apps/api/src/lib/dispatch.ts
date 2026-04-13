@@ -1,5 +1,17 @@
 export type WorkflowStage = 'PACKING_TESTING' | 'MEDIA_UPLOADED' | 'READY_FOR_DISPATCH';
 
+export type MediaKind = 'IMAGE' | 'VIDEO' | 'DOCUMENT';
+
+export type MediaApiRecord = {
+  id: string;
+  machineUnitId: string;
+  kind: MediaKind;
+  fileName: string;
+  storagePath: string;
+  mimeType: string | null;
+  createdAt: string;
+};
+
 export type MachineUnitApiRecord = {
   id: string;
   orderId: string;
@@ -14,6 +26,7 @@ export type MachineUnitApiRecord = {
   videoCount: number;
   requiredVideoCount: number;
   workflowStage: WorkflowStage;
+  mediaFiles: MediaApiRecord[];
 };
 
 export type OrderApiRecord = {

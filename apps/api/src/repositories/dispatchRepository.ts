@@ -162,7 +162,16 @@ function mapMachineUnit(machineUnit: PrismaMachineUnitPayload): MachineUnitApiRe
     imageCount,
     videoCount,
     requiredVideoCount: machineUnit.requiredVideoCount,
-    workflowStage: machineUnit.workflowStage as WorkflowStage
+    workflowStage: machineUnit.workflowStage as WorkflowStage,
+    mediaFiles: machineUnit.mediaFiles.map((file) => ({
+      id: file.id,
+      machineUnitId: file.machineUnitId ?? machineUnit.id,
+      kind: file.kind,
+      fileName: file.fileName,
+      storagePath: file.storagePath,
+      mimeType: file.mimeType,
+      createdAt: file.createdAt.toISOString()
+    }))
   };
 }
 
