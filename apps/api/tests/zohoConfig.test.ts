@@ -49,4 +49,13 @@ describe('buildApiConfig', () => {
       })
     ).rejects.toThrow(/postgres connection string/i);
   });
+
+  it('rejects blank zoho active order statuses after trimming', async () => {
+    await expect(
+      buildApiConfig({
+        ...baseEnv,
+        ZOHO_ACTIVE_ORDER_STATUSES: ' , , '
+      })
+    ).rejects.toThrow(/ZOHO_ACTIVE_ORDER_STATUSES must include at least one non-empty status/i);
+  });
 });

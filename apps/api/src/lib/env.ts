@@ -24,7 +24,13 @@ const envSchema = z.object({
   ZOHO_ORGANIZATION_ID: z.string().min(1),
   ZOHO_API_BASE_URL: z.string().url(),
   ZOHO_SYNC_INTERVAL_MINUTES: z.coerce.number().int().positive(),
-  ZOHO_ACTIVE_ORDER_STATUSES: z.string().min(1)
+  ZOHO_ACTIVE_ORDER_STATUSES: z
+    .string()
+    .min(1)
+    .refine(
+      (value) => value.split(',').some((status) => status.trim().length > 0),
+      'ZOHO_ACTIVE_ORDER_STATUSES must include at least one non-empty status'
+    )
 });
 
 export type ApiConfig = {
