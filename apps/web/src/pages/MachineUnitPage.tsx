@@ -1,13 +1,26 @@
+import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { MachineStatusPanel } from '../components/MachineStatusPanel';
 import { MediaUploadPanel } from '../components/MediaUploadPanel';
-import { getMachineUnitById } from '../lib/apiClient';
+import { fetchMachineUnitById, generateSerialForMachineUnit, getMachineUnitById, type MachineUnitDetail } from '../lib/apiClient';
 
 export function MachineUnitPage() {
   const { id = '' } = useParams();
-  const machine = getMachineUnitById(id);
+  const [machine, setMachine] = useState<MachineUnitDetail | null>(() => getMachineUnitById(id));
+  const [loading, setLoading] = useState(true);
 
-  if (!machine) {
+  useEffect(() => {
+    fetchMachineUnitById(id)
+      .then(setMachine)
+      .finally(() => setLoading(false));
+  }, [id]);
+
+  async function handleGenerateSerial() {
+    const updated = await generateSerialForMachineUnit(id);
+    if (updated) setMachine(updated);
+  }
+
+  if (!machine && !loading) {
     return (
       <main className="page-shell">
         <div className="page-header">
@@ -17,6 +30,14 @@ export function MachineUnitPage() {
           </div>
           <Link className="ghost-button" to="/dashboard">Back to dashboard</Link>
         </div>
+      </main>
+    );
+  }
+
+  if (!machine) {
+    return (
+      <main className="page-shell">
+        <div className="detail-panel"><p>Loading machine unit...</p></div>
       </main>
     );
   }
@@ -62,11 +83,13 @@ export function MachineUnitPage() {
             </div>
           </div>
           <div className="action-grid">
-            <button className="ghost-button" type="button">Generate serial</button>
+            <button className="ghost-button" type="button" onClick={handleGenerateSerial}>Generate serial</button>
             <button className="ghost-button" type="button">Generate QR</button>
             <button className="primary-button" type="button">Mark ready for dispatch</button>
           </div>
-          <p className="muted-copy">Ready for dispatch stays blocked until serial, QR, and required media all exist.</p>
+          <p className="muted-copy">
+            {loading ? 'Refreshing machine state from API...' : 'Ready for dispatch stays blocked until serial, QR, and required media all exist.'}
+          </p>
         </section>
       </section>
     </main>

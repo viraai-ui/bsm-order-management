@@ -1,11 +1,21 @@
+import { useEffect, useState } from 'react';
 import { OrderBucket } from '../../components/OrderBucket';
 import { SyncButton } from '../../components/SyncButton';
-import { dashboardSnapshot, groupOrdersByBucket } from '../../lib/apiClient';
+import { dashboardSnapshot, fetchDashboardOrders, groupOrdersByBucket, type DispatchOrder } from '../../lib/apiClient';
 import { signOutDemoUser } from '../auth/auth';
 
-const grouped = groupOrdersByBucket(dashboardSnapshot);
-
 export function DashboardPage() {
+  const [orders, setOrders] = useState<DispatchOrder[]>(dashboardSnapshot);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchDashboardOrders()
+      .then(setOrders)
+      .finally(() => setLoading(false));
+  }, []);
+
+  const grouped = groupOrdersByBucket(orders);
+
   return (
     <div className="dashboard-shell">
       <aside className="sidebar">
@@ -48,8 +58,8 @@ export function DashboardPage() {
           </div>
           <div className="metric-card warning-panel">
             <span className="meta-label">Urgent queue</span>
-            <strong>07</strong>
-            <p>Two orders risk same-day SLA breach.</p>
+            <strong>{grouped.Urgent.length.toString().padStart(2, '0')}</strong>
+            <p>{loading ? 'Loading dispatch buckets...' : 'Live bucket counts from API when available.'}</p>
           </div>
         </section>
 

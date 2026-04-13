@@ -28,6 +28,34 @@ export type MachineUnitDetail = {
   requiredVideos: number;
 };
 
+type OrdersApiItem = {
+  salesOrderNumber: string;
+  customerName: string;
+  deliveryDate?: string;
+  status: string;
+  machineUnits: {
+    zohoLineItemId: string;
+    productName: string;
+  }[];
+};
+
+type MachineUnitApiItem = {
+  id: string;
+  orderId: string;
+  productName: string;
+  serialNumber: string | null;
+  qrCodeValue: string | null;
+  imageCount: number;
+  videoCount: number;
+};
+
+type WorkflowApiItem = {
+  dispatchReady: boolean;
+  nextStage: 'PACKING_TESTING' | 'MEDIA_UPLOADED' | 'READY_FOR_DISPATCH';
+};
+
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:3001';
+
 export const dashboardSnapshot: DispatchOrder[] = [
   {
     id: 'BSM-24018',
@@ -145,6 +173,107 @@ export function groupOrdersByBucket(orders: DispatchOrder[]) {
     Tomorrow: orders.filter((order) => order.bucket === 'Tomorrow'),
     Later: orders.filter((order) => order.bucket === 'Later'),
   };
+}
+
+function mapStatusToBucket(status: string): DispatchBucket {
+  if (status.toLowerCase().includes('urgent')) return 'Urgent';
+  if (status.toLowerCase().includes('ready')) return 'Today';
+  return 'Today';
+}
+
+function mapWorkflowStage(nextStage: WorkflowApiItem['nextStage']): MachineUnitDetail['workflowStage'] {
+  if (nextStage === 'READY_FOR_DISPATCH') return 'Ready for Dispatch';
+  if (nextStage === 'MEDIA_UPLOADED') return 'Media Uploaded';
+  return 'Packing / Testing';
+}
+
+export function mapOrderToDispatchOrder(order: OrdersApiItem, index: number): DispatchOrder {
+  const machine = order.machineUnits[0];
+
+  return {
+    id: order.salesOrderNumber,
+    machineUnitId: machine?.zohoLineItemId ? `MU-${order.salesOrderNumber.replace('BSM-', '')}-${index + 1}` : `MU-${index + 1}`,
+    customer: order.customerName,
+    destination: 'Factory dispatch lane',
+    scheduledFor: order.deliveryDate ?? 'TBD',
+    bucket: mapStatusToBucket(order.status),
+    status: order.status.toLowerCase().includes('ready') ? 'Dispatch ready' : 'Ready to pack',
+    priority: index === 0 ? 'High' : 'Normal',
+  };
+}
+
+export function mapMachineUnitDetail(
+  machine: MachineUnitApiItem,
+  workflow: WorkflowApiItem,
+): MachineUnitDetail {
+  return {
+    id: machine.id,
+    unitCode: machine.id,
+    orderId: machine.orderId,
+    customer: machine.orderId,
+    destination: 'Factory dispatch lane',
+    scheduledFor: 'Next dispatch window',
+    productName: machine.productName,
+    serialNumber: machine.serialNumber,
+    qrReady: Boolean(machine.qrCodeValue),
+    mediaComplete: machine.imageCount >= 1 && machine.videoCount >= 2,
+    workflowStage: mapWorkflowStage(workflow.nextStage),
+    photos: machine.imageCount,
+    videos: machine.videoCount,
+    requiredVideos: 2,
+  };
+}
+
+async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    ...init,
+  });
+
+  if (!response.ok) {
+    throw new Error(`Request failed: ${response.status}`);
+  }
+
+  return response.json() as Promise<T>;
+}
+
+export async function fetchDashboardOrders(): Promise<DispatchOrder[]> {
+  try {
+    const payload = await fetchJson<{ data: OrdersApiItem[] }>('/orders');
+    return payload.data.map(mapOrderToDispatchOrder);
+  } catch {
+    return dashboardSnapshot;
+  }
+}
+
+export async function fetchMachineUnitById(id: string): Promise<MachineUnitDetail | null> {
+  try {
+    const payload = await fetchJson<{ data: MachineUnitApiItem; workflow: WorkflowApiItem }>(`/machine-units/${id}`);
+    return mapMachineUnitDetail(payload.data, payload.workflow);
+  } catch {
+    return machineUnitSnapshot.find((machine) => machine.id === id) ?? null;
+  }
+}
+
+export async function generateSerialForMachineUnit(id: string): Promise<MachineUnitDetail | null> {
+  try {
+    const payload = await fetchJson<{ data: MachineUnitApiItem; workflow: WorkflowApiItem }>(`/machine-units/${id}/generate-serial`, {
+      method: 'POST',
+    });
+    return mapMachineUnitDetail(payload.data, payload.workflow);
+  } catch {
+    const existing = machineUnitSnapshot.find((machine) => machine.id === id);
+    return existing
+      ? {
+          ...existing,
+          serialNumber: existing.serialNumber ?? '262700025',
+          qrReady: true,
+        }
+      : null;
+  }
 }
 
 export function getMachineUnitById(id: string) {
