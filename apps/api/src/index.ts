@@ -1,7 +1,8 @@
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import dotenv from 'dotenv';
-import { buildConfigFromEnv, createApp } from './app.js';
+import { createApp } from './app.js';
+import { buildApiConfig } from './lib/env.js';
 
 function loadEnvFile() {
   let currentDir = process.cwd();
@@ -24,7 +25,7 @@ function loadEnvFile() {
 
 async function main() {
   loadEnvFile();
-  const config = await buildConfigFromEnv();
+  const config = await buildApiConfig();
   const app = createApp(config);
   const host = '0.0.0.0';
 

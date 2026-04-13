@@ -1,6 +1,6 @@
-import { buildConfigFromEnv } from '../src/app.js';
+import { buildApiConfig } from '../src/lib/env.js';
 
-describe('buildConfigFromEnv', () => {
+describe('buildApiConfig', () => {
   const baseEnv = {
     PORT: '3001',
     NODE_ENV: 'development',
@@ -17,24 +17,33 @@ describe('buildConfigFromEnv', () => {
     ZOHO_ORGANIZATION_ID: '1234567890',
     ZOHO_API_BASE_URL: 'https://www.zohoapis.com/inventory/v1',
     ZOHO_SYNC_INTERVAL_MINUTES: '15',
-    ZOHO_ACTIVE_ORDER_STATUSES: 'confirmed,packed,shipped'
+    ZOHO_ACTIVE_ORDER_STATUSES: 'confirmed, packed , shipped '
   } satisfies NodeJS.ProcessEnv;
 
-  it('builds config when Neon/Postgres database envs are present', async () => {
-    const config = await buildConfigFromEnv(baseEnv);
+  it('parses core api config and zoho settings', async () => {
+    const config = await buildApiConfig(baseEnv);
 
     expect(config.port).toBe(3001);
     expect(config.nodeEnv).toBe('development');
     expect(config.auth.jwtSecret).toBe('super-secret-value');
+    expect(config.zoho).toEqual({
+      clientId: 'zoho-client-id',
+      clientSecret: 'zoho-client-secret',
+      refreshToken: 'zoho-refresh-token',
+      organizationId: '1234567890',
+      apiBaseUrl: 'https://www.zohoapis.com/inventory/v1',
+      syncIntervalMinutes: 15,
+      activeStatuses: ['confirmed', 'packed', 'shipped']
+    });
   });
 
   it('fails clearly when DATABASE_URL is missing', async () => {
-    await expect(buildConfigFromEnv({ ...baseEnv, DATABASE_URL: undefined })).rejects.toThrow(/DATABASE_URL/i);
+    await expect(buildApiConfig({ ...baseEnv, DATABASE_URL: undefined })).rejects.toThrow(/DATABASE_URL/i);
   });
 
   it('rejects non-postgres database URLs', async () => {
     await expect(
-      buildConfigFromEnv({
+      buildApiConfig({
         ...baseEnv,
         DATABASE_URL: 'mysql://user:password@localhost:3306/bsm_dashboard'
       })
