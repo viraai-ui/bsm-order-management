@@ -29,24 +29,34 @@ export type MachineUnitDetail = {
 };
 
 type OrdersApiItem = {
+  id: string;
   salesOrderNumber: string;
   customerName: string;
-  deliveryDate?: string;
-  status: string;
+  deliveryDate: string | null;
+  destination: string;
+  status: DispatchOrder['status'];
   machineUnits: {
+    id: string;
     zohoLineItemId: string;
     productName: string;
+    quantity: number;
   }[];
 };
 
 type MachineUnitApiItem = {
   id: string;
   orderId: string;
+  orderNumber: string;
+  customerName: string;
+  destination: string;
+  scheduledFor: string | null;
   productName: string;
   serialNumber: string | null;
   qrCodeValue: string | null;
   imageCount: number;
   videoCount: number;
+  requiredVideoCount: number;
+  workflowStage: 'PACKING_TESTING' | 'MEDIA_UPLOADED' | 'READY_FOR_DISPATCH';
 };
 
 type WorkflowApiItem = {
@@ -175,10 +185,37 @@ export function groupOrdersByBucket(orders: DispatchOrder[]) {
   };
 }
 
-function mapStatusToBucket(status: string): DispatchBucket {
-  if (status.toLowerCase().includes('urgent')) return 'Urgent';
-  if (status.toLowerCase().includes('ready')) return 'Today';
-  return 'Today';
+function formatSchedule(value: string | null | undefined) {
+  if (!value) return 'TBD';
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+
+  return new Intl.DateTimeFormat('en-IN', {
+    day: '2-digit',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+    timeZone: 'UTC',
+  }).format(date);
+}
+
+function mapScheduleToBucket(value: string | null | undefined): DispatchBucket {
+  if (!value) return 'Later';
+
+  const schedule = new Date(value);
+  if (Number.isNaN(schedule.getTime())) return 'Later';
+
+  const now = new Date('2026-04-13T00:00:00Z');
+  const diffDays = Math.floor((schedule.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+
+  if (diffDays <= 0) {
+    return schedule.getUTCHours() < 12 ? 'Urgent' : 'Today';
+  }
+
+  if (diffDays === 1) return 'Tomorrow';
+  return 'Later';
 }
 
 function mapWorkflowStage(nextStage: WorkflowApiItem['nextStage']): MachineUnitDetail['workflowStage'] {
@@ -192,13 +229,13 @@ export function mapOrderToDispatchOrder(order: OrdersApiItem, index: number): Di
 
   return {
     id: order.salesOrderNumber,
-    machineUnitId: machine?.zohoLineItemId ? `MU-${order.salesOrderNumber.replace('BSM-', '')}-${index + 1}` : `MU-${index + 1}`,
+    machineUnitId: machine?.id ?? `MU-${index + 1}`,
     customer: order.customerName,
-    destination: 'Factory dispatch lane',
-    scheduledFor: order.deliveryDate ?? 'TBD',
-    bucket: mapStatusToBucket(order.status),
-    status: order.status.toLowerCase().includes('ready') ? 'Dispatch ready' : 'Ready to pack',
-    priority: index === 0 ? 'High' : 'Normal',
+    destination: order.destination,
+    scheduledFor: formatSchedule(order.deliveryDate),
+    bucket: mapScheduleToBucket(order.deliveryDate),
+    status: order.status,
+    priority: index === 0 ? 'High' : index === 1 ? 'Medium' : 'Normal',
   };
 }
 
@@ -209,18 +246,18 @@ export function mapMachineUnitDetail(
   return {
     id: machine.id,
     unitCode: machine.id,
-    orderId: machine.orderId,
-    customer: machine.orderId,
-    destination: 'Factory dispatch lane',
-    scheduledFor: 'Next dispatch window',
+    orderId: machine.orderNumber,
+    customer: machine.customerName,
+    destination: machine.destination,
+    scheduledFor: formatSchedule(machine.scheduledFor),
     productName: machine.productName,
     serialNumber: machine.serialNumber,
     qrReady: Boolean(machine.qrCodeValue),
-    mediaComplete: machine.imageCount >= 1 && machine.videoCount >= 2,
+    mediaComplete: machine.imageCount >= 1 && machine.videoCount >= machine.requiredVideoCount,
     workflowStage: mapWorkflowStage(workflow.nextStage),
     photos: machine.imageCount,
     videos: machine.videoCount,
-    requiredVideos: 2,
+    requiredVideos: machine.requiredVideoCount,
   };
 }
 
@@ -270,9 +307,35 @@ export async function generateSerialForMachineUnit(id: string): Promise<MachineU
       ? {
           ...existing,
           serialNumber: existing.serialNumber ?? '262700025',
-          qrReady: true,
         }
       : null;
+  }
+}
+
+export async function generateQrForMachineUnit(id: string): Promise<MachineUnitDetail | null> {
+  try {
+    const payload = await fetchJson<{ data: MachineUnitApiItem; workflow: WorkflowApiItem }>(`/machine-units/${id}/generate-qr`, {
+      method: 'POST',
+    });
+    return mapMachineUnitDetail(payload.data, payload.workflow);
+  } catch {
+    const existing = machineUnitSnapshot.find((machine) => machine.id === id);
+    return existing && existing.serialNumber ? { ...existing, qrReady: true } : existing ?? null;
+  }
+}
+
+export async function markMachineUnitReadyForDispatch(id: string): Promise<MachineUnitDetail | null> {
+  try {
+    const payload = await fetchJson<{ data: MachineUnitApiItem; workflow: WorkflowApiItem }>(`/machine-units/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ workflowStage: 'READY_FOR_DISPATCH' }),
+    });
+    return mapMachineUnitDetail(payload.data, payload.workflow);
+  } catch {
+    const existing = machineUnitSnapshot.find((machine) => machine.id === id);
+    return existing && existing.serialNumber && existing.qrReady && existing.mediaComplete
+      ? { ...existing, workflowStage: 'Ready for Dispatch' }
+      : existing ?? null;
   }
 }
 

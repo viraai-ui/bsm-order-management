@@ -8,6 +8,8 @@ import { createAuthRouter } from './routes/auth.js';
 import { createMachineUnitsRouter } from './routes/machineUnits.js';
 import { createOrdersRouter } from './routes/orders.js';
 import { AuthService, type AuthConfig } from './lib/auth.js';
+import { prisma } from './lib/prisma.js';
+import { PrismaDispatchRepository, type DispatchRepository } from './repositories/dispatchRepository.js';
 
 const envSchema = z.object({
   PORT: z.coerce.number().default(3001),
@@ -24,6 +26,7 @@ export type AppConfig = {
   nodeEnv: 'development' | 'test' | 'production';
   corsOrigin: string;
   auth: AuthConfig;
+  dispatchRepository: DispatchRepository;
 };
 
 export async function buildConfigFromEnv(env: NodeJS.ProcessEnv = process.env): Promise<AppConfig> {
@@ -43,7 +46,8 @@ export async function buildConfigFromEnv(env: NodeJS.ProcessEnv = process.env): 
         role: 'ADMIN',
         passwordHash
       }
-    }
+    },
+    dispatchRepository: new PrismaDispatchRepository(prisma)
   };
 }
 
@@ -61,6 +65,7 @@ export function createApp(overrides?: Partial<AppConfig>) {
 
   const app = express();
   const authService = new AuthService(authConfig);
+  const dispatchRepository = overrides?.dispatchRepository ?? new PrismaDispatchRepository(prisma);
 
   app.disable('x-powered-by');
   app.use(helmet());
@@ -90,8 +95,8 @@ export function createApp(overrides?: Partial<AppConfig>) {
   });
 
   app.use('/auth', createAuthRouter(authService));
-  app.use('/orders', createOrdersRouter());
-  app.use('/machine-units', createMachineUnitsRouter());
+  app.use('/orders', createOrdersRouter(dispatchRepository));
+  app.use('/machine-units', createMachineUnitsRouter(dispatchRepository));
 
   app.use((error: unknown, _request: express.Request, response: express.Response, _next: express.NextFunction) => {
     console.error(error);

@@ -1,69 +1,28 @@
 import { Router } from 'express';
-import { nextSerialNumber } from '../services/serials.js';
-import { evaluateWorkflowReadiness, type WorkflowStage } from '../services/workflow.js';
+import type { DispatchRepository } from '../repositories/dispatchRepository.js';
+import type { WorkflowStage } from '../lib/dispatch.js';
+import { evaluateWorkflowReadiness } from '../services/workflow.js';
 
-type MachineUnitRecord = {
-  id: string;
-  orderId: string;
-  productName: string;
-  serialNumber: string | null;
-  qrCodeValue: string | null;
-  imageCount: number;
-  videoCount: number;
-  workflowStage: WorkflowStage;
-};
-
-function buildMachineUnits(): MachineUnitRecord[] {
-  return [
-    {
-      id: 'MU-24018-1',
-      orderId: 'BSM-24018',
-      productName: 'Axial Fan Unit',
-      serialNumber: null,
-      qrCodeValue: null,
-      imageCount: 4,
-      videoCount: 0,
-      workflowStage: 'PACKING_TESTING',
-    },
-    {
-      id: 'MU-24021-1',
-      orderId: 'BSM-24021',
-      productName: 'Pressure Pump Assembly',
-      serialNumber: '262700014',
-      qrCodeValue: 'qr://262700014',
-      imageCount: 6,
-      videoCount: 2,
-      workflowStage: 'MEDIA_UPLOADED',
-    },
-  ];
-}
-
-export function createMachineUnitsRouter() {
+export function createMachineUnitsRouter(dispatchRepository: DispatchRepository) {
   const router = Router();
-  const machineUnits = buildMachineUnits();
 
-  function findMachineUnit(id: string) {
-    return machineUnits.find((item) => item.id === id);
-  }
-
-  function buildResponse(machineUnit: MachineUnitRecord) {
-    const workflow = evaluateWorkflowReadiness(machineUnit);
+  function buildResponse(machineUnit: Awaited<ReturnType<DispatchRepository['getMachineUnitById']>> extends infer T ? NonNullable<T> : never) {
+    const workflow = evaluateWorkflowReadiness({
+      serialNumber: machineUnit.serialNumber,
+      qrCodeValue: machineUnit.qrCodeValue,
+      imageCount: machineUnit.imageCount,
+      videoCount: machineUnit.videoCount,
+      requiredVideoCount: machineUnit.requiredVideoCount
+    });
 
     return {
-      data: {
-        ...machineUnit,
-        workflowStage: machineUnit.workflowStage,
-      },
-      workflow,
+      data: machineUnit,
+      workflow
     };
   }
 
-  router.get('/', (_request, response) => {
-    response.status(200).json({ data: machineUnits });
-  });
-
-  router.get('/:id', (request, response) => {
-    const machineUnit = findMachineUnit(request.params.id);
+  router.get('/:id', async (request, response) => {
+    const machineUnit = await dispatchRepository.getMachineUnitById(request.params.id);
 
     if (!machineUnit) {
       response.status(404).json({ error: 'Machine unit not found' });
@@ -73,40 +32,36 @@ export function createMachineUnitsRouter() {
     response.status(200).json(buildResponse(machineUnit));
   });
 
-  router.post('/:id/generate-serial', (request, response) => {
-    const machineUnit = findMachineUnit(request.params.id);
+  router.post('/:id/generate-serial', async (request, response) => {
+    const machineUnit = await dispatchRepository.generateSerialNumber(request.params.id);
 
     if (!machineUnit) {
       response.status(404).json({ error: 'Machine unit not found' });
       return;
     }
-
-    const { serialNumber } = nextSerialNumber({ date: new Date('2026-04-13T00:00:00Z'), lastSequence: 24 });
-    machineUnit.serialNumber = serialNumber;
 
     response.status(200).json(buildResponse(machineUnit));
   });
 
-  router.post('/:id/generate-qr', (request, response) => {
-    const machineUnit = findMachineUnit(request.params.id);
+  router.post('/:id/generate-qr', async (request, response) => {
+    const existing = await dispatchRepository.getMachineUnitById(request.params.id);
 
-    if (!machineUnit) {
+    if (!existing) {
       response.status(404).json({ error: 'Machine unit not found' });
       return;
     }
 
-    if (!machineUnit.serialNumber) {
+    if (!existing.serialNumber) {
       response.status(409).json({ error: 'Serial number must exist before generating a QR code' });
       return;
     }
 
-    machineUnit.qrCodeValue = `qr://${machineUnit.serialNumber}`;
-
-    response.status(200).json(buildResponse(machineUnit));
+    const machineUnit = await dispatchRepository.generateQrCode(request.params.id);
+    response.status(200).json(buildResponse(machineUnit ?? existing));
   });
 
-  router.patch('/:id', (request, response) => {
-    const machineUnit = findMachineUnit(request.params.id);
+  router.patch('/:id', async (request, response) => {
+    const machineUnit = await dispatchRepository.getMachineUnitById(request.params.id);
 
     if (!machineUnit) {
       response.status(404).json({ error: 'Machine unit not found' });
@@ -116,22 +71,28 @@ export function createMachineUnitsRouter() {
     const requestedStage = request.body?.workflowStage as WorkflowStage | undefined;
 
     if (requestedStage === 'READY_FOR_DISPATCH') {
-      const workflow = evaluateWorkflowReadiness(machineUnit);
+      const workflow = evaluateWorkflowReadiness({
+        serialNumber: machineUnit.serialNumber,
+        qrCodeValue: machineUnit.qrCodeValue,
+        imageCount: machineUnit.imageCount,
+        videoCount: machineUnit.videoCount,
+        requiredVideoCount: machineUnit.requiredVideoCount
+      });
 
       if (!workflow.dispatchReady) {
         response.status(409).json({
           error: 'Machine unit is not ready for dispatch',
-          blockers: workflow.blockers,
+          blockers: workflow.blockers
         });
         return;
       }
     }
 
-    if (requestedStage) {
-      machineUnit.workflowStage = requestedStage;
-    }
+    const updated = requestedStage
+      ? await dispatchRepository.updateMachineUnitWorkflowStage({ id: request.params.id, workflowStage: requestedStage })
+      : machineUnit;
 
-    response.status(200).json(buildResponse(machineUnit));
+    response.status(200).json(buildResponse(updated ?? machineUnit));
   });
 
   return router;

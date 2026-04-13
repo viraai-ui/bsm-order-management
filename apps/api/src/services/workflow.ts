@@ -1,4 +1,4 @@
-export type WorkflowStage = 'PACKING_TESTING' | 'MEDIA_UPLOADED' | 'READY_FOR_DISPATCH';
+import type { WorkflowStage } from '../lib/dispatch.js';
 
 export type WorkflowCheckInput = {
   serialNumber?: string | null;

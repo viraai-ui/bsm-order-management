@@ -2,7 +2,14 @@ import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { MachineStatusPanel } from '../components/MachineStatusPanel';
 import { MediaUploadPanel } from '../components/MediaUploadPanel';
-import { fetchMachineUnitById, generateSerialForMachineUnit, getMachineUnitById, type MachineUnitDetail } from '../lib/apiClient';
+import {
+  fetchMachineUnitById,
+  generateQrForMachineUnit,
+  generateSerialForMachineUnit,
+  getMachineUnitById,
+  markMachineUnitReadyForDispatch,
+  type MachineUnitDetail,
+} from '../lib/apiClient';
 
 export function MachineUnitPage() {
   const { id = '' } = useParams();
@@ -17,6 +24,16 @@ export function MachineUnitPage() {
 
   async function handleGenerateSerial() {
     const updated = await generateSerialForMachineUnit(id);
+    if (updated) setMachine(updated);
+  }
+
+  async function handleGenerateQr() {
+    const updated = await generateQrForMachineUnit(id);
+    if (updated) setMachine(updated);
+  }
+
+  async function handleMarkReady() {
+    const updated = await markMachineUnitReadyForDispatch(id);
     if (updated) setMachine(updated);
   }
 
@@ -84,8 +101,8 @@ export function MachineUnitPage() {
           </div>
           <div className="action-grid">
             <button className="ghost-button" type="button" onClick={handleGenerateSerial}>Generate serial</button>
-            <button className="ghost-button" type="button">Generate QR</button>
-            <button className="primary-button" type="button">Mark ready for dispatch</button>
+            <button className="ghost-button" type="button" onClick={handleGenerateQr}>Generate QR</button>
+            <button className="primary-button" type="button" onClick={handleMarkReady}>Mark ready for dispatch</button>
           </div>
           <p className="muted-copy">
             {loading ? 'Refreshing machine state from API...' : 'Ready for dispatch stays blocked until serial, QR, and required media all exist.'}

@@ -43,6 +43,12 @@ enum SyncState {
   FAILED
 }
 
+enum WorkflowStage {
+  PACKING_TESTING
+  MEDIA_UPLOADED
+  READY_FOR_DISPATCH
+}
+
 model User {
   id           String    @id @default(cuid())
   email        String    @unique
@@ -61,6 +67,7 @@ model Order {
   customerName   String
   customerEmail  String?
   dueDate        DateTime?
+  destination    String          @default("Factory dispatch lane")
   status         OrderStatus     @default(PENDING)
   notes          String?
   createdAt      DateTime        @default(now())
@@ -73,19 +80,24 @@ model Order {
 }
 
 model MachineUnit {
-  id            String            @id @default(cuid())
-  orderId       String
-  serialNumber  String?           @unique
-  qrCodeValue   String?
-  name          String
-  sku           String?
-  quantity      Int               @default(1)
-  status        MachineUnitStatus @default(PENDING)
-  location      String?
-  createdAt     DateTime          @default(now())
-  updatedAt     DateTime          @updatedAt
-  order         Order             @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  mediaFiles    MediaFile[]
+  id                 String            @id @default(cuid())
+  orderId            String
+  externalRef        String?
+  serialNumber       String?           @unique
+  qrCodeValue        String?
+  name               String
+  sku                String?
+  quantity           Int               @default(1)
+  status             MachineUnitStatus @default(PENDING)
+  workflowStage      WorkflowStage     @default(PACKING_TESTING)
+  requiredVideoCount Int               @default(2)
+  location           String?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+  order              Order             @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  mediaFiles         MediaFile[]
+
+  @@index([orderId])
 }
 
 model MediaFile {
