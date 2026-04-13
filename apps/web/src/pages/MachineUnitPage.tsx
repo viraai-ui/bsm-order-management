@@ -9,6 +9,7 @@ import {
   generateQrForMachineUnit,
   generateSerialForMachineUnit,
   markMachineUnitReadyForDispatch,
+  updateMachineWorkflowStage,
   type MachineUnitDetail,
 } from '../lib/apiClient';
 
@@ -18,7 +19,7 @@ export function MachineUnitPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [activeAction, setActiveAction] = useState<'serial' | 'qr' | 'ready' | 'media' | null>(null);
+  const [activeAction, setActiveAction] = useState<'serial' | 'qr' | 'ready' | 'media' | 'stage' | null>(null);
 
   const loadMachine = useCallback(async () => {
     setLoading(true);
@@ -39,7 +40,7 @@ export function MachineUnitPage() {
     void loadMachine();
   }, [loadMachine]);
 
-  async function runAction(action: 'serial' | 'qr' | 'ready' | 'media', request: () => Promise<MachineUnitDetail>) {
+  async function runAction(action: 'serial' | 'qr' | 'ready' | 'media' | 'stage', request: () => Promise<MachineUnitDetail>) {
     setActionError(null);
     setActiveAction(action);
 
@@ -63,6 +64,10 @@ export function MachineUnitPage() {
 
   function handleMarkReady() {
     void runAction('ready', () => markMachineUnitReadyForDispatch(id));
+  }
+
+  function handleMarkMediaUploaded() {
+    void runAction('stage', () => updateMachineWorkflowStage(id, 'MEDIA_UPLOADED'));
   }
 
   async function handleAddMedia(input: { kind: 'IMAGE' | 'VIDEO' | 'DOCUMENT'; fileName: string; mimeType?: string }) {
@@ -155,6 +160,9 @@ export function MachineUnitPage() {
             </button>
             <button className="ghost-button" type="button" onClick={handleGenerateQr} disabled={activeAction !== null}>
               {activeAction === 'qr' ? 'Generating QR…' : 'Generate QR'}
+            </button>
+            <button className="ghost-button" type="button" onClick={handleMarkMediaUploaded} disabled={activeAction !== null}>
+              {activeAction === 'stage' ? 'Updating stage…' : 'Mark media uploaded'}
             </button>
             <button className="primary-button" type="button" onClick={handleMarkReady} disabled={activeAction !== null}>
               {activeAction === 'ready' ? 'Marking ready…' : 'Mark ready for dispatch'}

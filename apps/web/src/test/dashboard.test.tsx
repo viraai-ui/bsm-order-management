@@ -109,6 +109,44 @@ beforeEach(() => {
       });
     }
 
+    if (input.endsWith('/machine-units/MU-24018-1') && init?.method === 'PATCH') {
+      const body = JSON.parse(String(init.body ?? '{}')) as { workflowStage?: string };
+
+      if (body.workflowStage === 'MEDIA_UPLOADED') {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            data: {
+              id: 'MU-24018-1',
+              orderId: 'order-1',
+              orderNumber: 'BSM-24018',
+              customerName: 'Anand Cooling Towers',
+              destination: 'Delhi NCR',
+              scheduledFor: '2026-04-13T08:30:00Z',
+              productName: 'Axial Fan Unit',
+              serialNumber: '262700014',
+              qrCodeValue: 'qr-1',
+              imageCount: 4,
+              videoCount: 2,
+              requiredVideoCount: 2,
+              workflowStage: 'MEDIA_UPLOADED',
+              mediaFiles: [],
+            },
+            workflow: {
+              dispatchReady: true,
+              nextStage: 'READY_FOR_DISPATCH',
+            },
+          }),
+        });
+      }
+
+      return Promise.resolve({
+        ok: false,
+        status: 409,
+        json: async () => ({ error: 'Machine unit is not ready for dispatch' }),
+      });
+    }
+
     if (input.endsWith('/machine-units/MU-24018-1/media') && init?.method === 'POST') {
       return Promise.resolve({
         ok: true,
@@ -256,6 +294,20 @@ describe('dashboard detail flow', () => {
 
     await waitFor(() => {
       expect(screen.queryByText('test-run.mp4')).not.toBeInTheDocument();
+    });
+  });
+
+  it('advances the machine workflow to media uploaded', async () => {
+    const user = userEvent.setup();
+    renderWithRoutes(['/machine-units/MU-24018-1']);
+
+    expect(await screen.findByText('Mark ready for dispatch')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Mark media uploaded' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Ready for Dispatch')).toBeInTheDocument();
+      expect(screen.getByText('Dispatch ready')).toBeInTheDocument();
     });
   });
 });

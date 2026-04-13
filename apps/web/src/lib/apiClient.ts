@@ -241,12 +241,19 @@ export async function generateQrForMachineUnit(id: string): Promise<MachineUnitD
   return mapMachineUnitDetail(payload.data, payload.workflow);
 }
 
-export async function markMachineUnitReadyForDispatch(id: string): Promise<MachineUnitDetail> {
+export async function updateMachineWorkflowStage(
+  id: string,
+  workflowStage: 'PACKING_TESTING' | 'MEDIA_UPLOADED' | 'READY_FOR_DISPATCH',
+): Promise<MachineUnitDetail> {
   const payload = await fetchJson<{ data: MachineUnitApiItem; workflow: WorkflowApiItem }>(`/machine-units/${id}`, {
     method: 'PATCH',
-    body: JSON.stringify({ workflowStage: 'READY_FOR_DISPATCH' }),
+    body: JSON.stringify({ workflowStage }),
   });
   return mapMachineUnitDetail(payload.data, payload.workflow);
+}
+
+export async function markMachineUnitReadyForDispatch(id: string): Promise<MachineUnitDetail> {
+  return updateMachineWorkflowStage(id, 'READY_FOR_DISPATCH');
 }
 
 export async function addMediaToMachineUnit(

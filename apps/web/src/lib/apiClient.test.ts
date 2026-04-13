@@ -8,6 +8,7 @@ import {
   groupOrdersByBucket,
   mapMachineUnitDetail,
   mapOrderToDispatchOrder,
+  updateMachineWorkflowStage,
 } from './apiClient';
 
 afterEach(() => {
@@ -232,5 +233,37 @@ describe('apiClient', () => {
       photos: 4,
       mediaFiles: [],
     }));
+  });
+
+  it('updates the machine workflow stage via the API', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        data: {
+          id: 'MU-24018-1',
+          orderId: 'order-1',
+          orderNumber: 'BSM-24018',
+          customerName: 'Anand Cooling Towers',
+          destination: 'Delhi NCR',
+          scheduledFor: '2026-04-13T08:30:00Z',
+          productName: 'Axial Fan Unit',
+          serialNumber: '262700014',
+          qrCodeValue: 'qr-1',
+          imageCount: 4,
+          videoCount: 2,
+          requiredVideoCount: 2,
+          workflowStage: 'MEDIA_UPLOADED',
+          mediaFiles: [],
+        },
+        workflow: {
+          dispatchReady: true,
+          nextStage: 'READY_FOR_DISPATCH',
+        },
+      }),
+    }));
+
+    await expect(updateMachineWorkflowStage('MU-24018-1', 'MEDIA_UPLOADED')).resolves.toEqual(
+      expect.objectContaining({ workflowStage: 'Ready for Dispatch' }),
+    );
   });
 });
