@@ -66,115 +66,15 @@ type WorkflowApiItem = {
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:3001';
 
-export const dashboardSnapshot: DispatchOrder[] = [
-  {
-    id: 'BSM-24018',
-    machineUnitId: 'MU-24018-1',
-    customer: 'Anand Cooling Towers',
-    destination: 'Delhi NCR',
-    scheduledFor: '08:30 today',
-    bucket: 'Urgent',
-    status: 'Awaiting media',
-    priority: 'High',
-  },
-  {
-    id: 'BSM-24021',
-    machineUnitId: 'MU-24021-1',
-    customer: 'Shiv Pumps',
-    destination: 'Jaipur',
-    scheduledFor: '13:00 today',
-    bucket: 'Today',
-    status: 'Testing complete',
-    priority: 'Medium',
-  },
-  {
-    id: 'BSM-24025',
-    machineUnitId: 'MU-24025-1',
-    customer: 'Northline Infra',
-    destination: 'Lucknow',
-    scheduledFor: '10:00 tomorrow',
-    bucket: 'Tomorrow',
-    status: 'Ready to pack',
-    priority: 'Normal',
-  },
-  {
-    id: 'BSM-24029',
-    machineUnitId: 'MU-24029-1',
-    customer: 'Hydrotech Systems',
-    destination: 'Chandigarh',
-    scheduledFor: 'Wednesday',
-    bucket: 'Later',
-    status: 'Dispatch ready',
-    priority: 'Normal',
-  },
-];
+export class ApiError extends Error {
+  status: number;
 
-export const machineUnitSnapshot: MachineUnitDetail[] = [
-  {
-    id: 'MU-24018-1',
-    unitCode: 'MU-24018-1',
-    orderId: 'BSM-24018',
-    customer: 'Anand Cooling Towers',
-    destination: 'Delhi NCR',
-    scheduledFor: '08:30 today',
-    productName: 'Axial Fan Unit',
-    serialNumber: null,
-    qrReady: false,
-    mediaComplete: false,
-    workflowStage: 'Packing / Testing',
-    photos: 4,
-    videos: 0,
-    requiredVideos: 2,
-  },
-  {
-    id: 'MU-24021-1',
-    unitCode: 'MU-24021-1',
-    orderId: 'BSM-24021',
-    customer: 'Shiv Pumps',
-    destination: 'Jaipur',
-    scheduledFor: '13:00 today',
-    productName: 'Pressure Pump Assembly',
-    serialNumber: '262700014',
-    qrReady: true,
-    mediaComplete: true,
-    workflowStage: 'Ready for Dispatch',
-    photos: 6,
-    videos: 2,
-    requiredVideos: 2,
-  },
-  {
-    id: 'MU-24025-1',
-    unitCode: 'MU-24025-1',
-    orderId: 'BSM-24025',
-    customer: 'Northline Infra',
-    destination: 'Lucknow',
-    scheduledFor: '10:00 tomorrow',
-    productName: 'Cooling Tower Frame',
-    serialNumber: '262700019',
-    qrReady: false,
-    mediaComplete: false,
-    workflowStage: 'Media Uploaded',
-    photos: 5,
-    videos: 2,
-    requiredVideos: 2,
-  },
-  {
-    id: 'MU-24029-1',
-    unitCode: 'MU-24029-1',
-    orderId: 'BSM-24029',
-    customer: 'Hydrotech Systems',
-    destination: 'Chandigarh',
-    scheduledFor: 'Wednesday',
-    productName: 'Heat Exchange Module',
-    serialNumber: '262700024',
-    qrReady: true,
-    mediaComplete: false,
-    workflowStage: 'Media Uploaded',
-    photos: 3,
-    videos: 1,
-    requiredVideos: 2,
-  },
-];
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+  }
+}
 
 export function groupOrdersByBucket(orders: DispatchOrder[]) {
   return {
@@ -262,83 +162,64 @@ export function mapMachineUnitDetail(
 }
 
 async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
+  const headers = new Headers(init?.headers);
+
+  if (!headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json');
+  }
+
   const response = await fetch(`${API_BASE_URL}${path}`, {
-    credentials: 'include',
-    headers: {
-      'Content-Type': 'application/json',
-    },
     ...init,
+    credentials: 'include',
+    headers,
   });
 
   if (!response.ok) {
-    throw new Error(`Request failed: ${response.status}`);
+    let message = `Request failed: ${response.status}`;
+
+    try {
+      const payload = await response.json() as { error?: string };
+      if (payload.error) {
+        message = payload.error;
+      }
+    } catch {
+      // Ignore invalid JSON and keep the status-based message.
+    }
+
+    throw new ApiError(message, response.status);
   }
 
   return response.json() as Promise<T>;
 }
 
 export async function fetchDashboardOrders(): Promise<DispatchOrder[]> {
-  try {
-    const payload = await fetchJson<{ data: OrdersApiItem[] }>('/orders');
-    return payload.data.map(mapOrderToDispatchOrder);
-  } catch {
-    return dashboardSnapshot;
-  }
+  const payload = await fetchJson<{ data: OrdersApiItem[] }>('/orders');
+  return payload.data.map(mapOrderToDispatchOrder);
 }
 
-export async function fetchMachineUnitById(id: string): Promise<MachineUnitDetail | null> {
-  try {
-    const payload = await fetchJson<{ data: MachineUnitApiItem; workflow: WorkflowApiItem }>(`/machine-units/${id}`);
-    return mapMachineUnitDetail(payload.data, payload.workflow);
-  } catch {
-    return machineUnitSnapshot.find((machine) => machine.id === id) ?? null;
-  }
+export async function fetchMachineUnitById(id: string): Promise<MachineUnitDetail> {
+  const payload = await fetchJson<{ data: MachineUnitApiItem; workflow: WorkflowApiItem }>(`/machine-units/${id}`);
+  return mapMachineUnitDetail(payload.data, payload.workflow);
 }
 
-export async function generateSerialForMachineUnit(id: string): Promise<MachineUnitDetail | null> {
-  try {
-    const payload = await fetchJson<{ data: MachineUnitApiItem; workflow: WorkflowApiItem }>(`/machine-units/${id}/generate-serial`, {
-      method: 'POST',
-    });
-    return mapMachineUnitDetail(payload.data, payload.workflow);
-  } catch {
-    const existing = machineUnitSnapshot.find((machine) => machine.id === id);
-    return existing
-      ? {
-          ...existing,
-          serialNumber: existing.serialNumber ?? '262700025',
-        }
-      : null;
-  }
+export async function generateSerialForMachineUnit(id: string): Promise<MachineUnitDetail> {
+  const payload = await fetchJson<{ data: MachineUnitApiItem; workflow: WorkflowApiItem }>(`/machine-units/${id}/generate-serial`, {
+    method: 'POST',
+  });
+  return mapMachineUnitDetail(payload.data, payload.workflow);
 }
 
-export async function generateQrForMachineUnit(id: string): Promise<MachineUnitDetail | null> {
-  try {
-    const payload = await fetchJson<{ data: MachineUnitApiItem; workflow: WorkflowApiItem }>(`/machine-units/${id}/generate-qr`, {
-      method: 'POST',
-    });
-    return mapMachineUnitDetail(payload.data, payload.workflow);
-  } catch {
-    const existing = machineUnitSnapshot.find((machine) => machine.id === id);
-    return existing && existing.serialNumber ? { ...existing, qrReady: true } : existing ?? null;
-  }
+export async function generateQrForMachineUnit(id: string): Promise<MachineUnitDetail> {
+  const payload = await fetchJson<{ data: MachineUnitApiItem; workflow: WorkflowApiItem }>(`/machine-units/${id}/generate-qr`, {
+    method: 'POST',
+  });
+  return mapMachineUnitDetail(payload.data, payload.workflow);
 }
 
-export async function markMachineUnitReadyForDispatch(id: string): Promise<MachineUnitDetail | null> {
-  try {
-    const payload = await fetchJson<{ data: MachineUnitApiItem; workflow: WorkflowApiItem }>(`/machine-units/${id}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ workflowStage: 'READY_FOR_DISPATCH' }),
-    });
-    return mapMachineUnitDetail(payload.data, payload.workflow);
-  } catch {
-    const existing = machineUnitSnapshot.find((machine) => machine.id === id);
-    return existing && existing.serialNumber && existing.qrReady && existing.mediaComplete
-      ? { ...existing, workflowStage: 'Ready for Dispatch' }
-      : existing ?? null;
-  }
-}
-
-export function getMachineUnitById(id: string) {
-  return machineUnitSnapshot.find((machine) => machine.id === id) ?? null;
+export async function markMachineUnitReadyForDispatch(id: string): Promise<MachineUnitDetail> {
+  const payload = await fetchJson<{ data: MachineUnitApiItem; workflow: WorkflowApiItem }>(`/machine-units/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ workflowStage: 'READY_FOR_DISPATCH' }),
+  });
+  return mapMachineUnitDetail(payload.data, payload.workflow);
 }

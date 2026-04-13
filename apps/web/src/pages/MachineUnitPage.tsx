@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { MachineStatusPanel } from '../components/MachineStatusPanel';
 import { MediaUploadPanel } from '../components/MediaUploadPanel';
@@ -6,55 +6,87 @@ import {
   fetchMachineUnitById,
   generateQrForMachineUnit,
   generateSerialForMachineUnit,
-  getMachineUnitById,
   markMachineUnitReadyForDispatch,
   type MachineUnitDetail,
 } from '../lib/apiClient';
 
 export function MachineUnitPage() {
   const { id = '' } = useParams();
-  const [machine, setMachine] = useState<MachineUnitDetail | null>(() => getMachineUnitById(id));
+  const [machine, setMachine] = useState<MachineUnitDetail | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [activeAction, setActiveAction] = useState<'serial' | 'qr' | 'ready' | null>(null);
 
-  useEffect(() => {
-    fetchMachineUnitById(id)
-      .then(setMachine)
-      .finally(() => setLoading(false));
+  const loadMachine = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      const nextMachine = await fetchMachineUnitById(id);
+      setMachine(nextMachine);
+    } catch (loadError) {
+      setMachine(null);
+      setError(loadError instanceof Error ? loadError.message : 'Failed to load machine unit');
+    } finally {
+      setLoading(false);
+    }
   }, [id]);
 
-  async function handleGenerateSerial() {
-    const updated = await generateSerialForMachineUnit(id);
-    if (updated) setMachine(updated);
+  useEffect(() => {
+    void loadMachine();
+  }, [loadMachine]);
+
+  async function runAction(action: 'serial' | 'qr' | 'ready', request: () => Promise<MachineUnitDetail>) {
+    setActionError(null);
+    setActiveAction(action);
+
+    try {
+      const updated = await request();
+      setMachine(updated);
+    } catch (requestError) {
+      setActionError(requestError instanceof Error ? requestError.message : 'Unable to update machine unit');
+    } finally {
+      setActiveAction(null);
+    }
   }
 
-  async function handleGenerateQr() {
-    const updated = await generateQrForMachineUnit(id);
-    if (updated) setMachine(updated);
+  function handleGenerateSerial() {
+    void runAction('serial', () => generateSerialForMachineUnit(id));
   }
 
-  async function handleMarkReady() {
-    const updated = await markMachineUnitReadyForDispatch(id);
-    if (updated) setMachine(updated);
+  function handleGenerateQr() {
+    void runAction('qr', () => generateQrForMachineUnit(id));
   }
 
-  if (!machine && !loading) {
+  function handleMarkReady() {
+    void runAction('ready', () => markMachineUnitReadyForDispatch(id));
+  }
+
+  if (loading) {
     return (
       <main className="page-shell">
-        <div className="page-header">
-          <div>
-            <p className="eyebrow">Machine unit</p>
-            <h1>Machine not found</h1>
-          </div>
-          <Link className="ghost-button" to="/dashboard">Back to dashboard</Link>
-        </div>
+        <div className="detail-panel"><p>Loading machine unit...</p></div>
       </main>
     );
   }
 
   if (!machine) {
+    const title = error === 'Machine unit not found' ? 'Machine not found' : 'Machine unavailable';
+
     return (
       <main className="page-shell">
-        <div className="detail-panel"><p>Loading machine unit...</p></div>
+        <div className="page-header">
+          <div>
+            <p className="eyebrow">Machine unit</p>
+            <h1>{title}</h1>
+            {error ? <p className="page-subtitle">{error}</p> : null}
+          </div>
+          <div className="action-grid">
+            <button className="ghost-button" type="button" onClick={() => void loadMachine()}>Retry</button>
+            <Link className="ghost-button" to="/dashboard">Back to dashboard</Link>
+          </div>
+        </div>
       </main>
     );
   }
@@ -100,12 +132,19 @@ export function MachineUnitPage() {
             </div>
           </div>
           <div className="action-grid">
-            <button className="ghost-button" type="button" onClick={handleGenerateSerial}>Generate serial</button>
-            <button className="ghost-button" type="button" onClick={handleGenerateQr}>Generate QR</button>
-            <button className="primary-button" type="button" onClick={handleMarkReady}>Mark ready for dispatch</button>
+            <button className="ghost-button" type="button" onClick={handleGenerateSerial} disabled={activeAction !== null}>
+              {activeAction === 'serial' ? 'Generating serial…' : 'Generate serial'}
+            </button>
+            <button className="ghost-button" type="button" onClick={handleGenerateQr} disabled={activeAction !== null}>
+              {activeAction === 'qr' ? 'Generating QR…' : 'Generate QR'}
+            </button>
+            <button className="primary-button" type="button" onClick={handleMarkReady} disabled={activeAction !== null}>
+              {activeAction === 'ready' ? 'Marking ready…' : 'Mark ready for dispatch'}
+            </button>
           </div>
+          {actionError ? <p className="muted-copy" role="alert">{actionError}</p> : null}
           <p className="muted-copy">
-            {loading ? 'Refreshing machine state from API...' : 'Ready for dispatch stays blocked until serial, QR, and required media all exist.'}
+            Ready for dispatch stays blocked until serial, QR, and required media all exist.
           </p>
         </section>
       </section>
