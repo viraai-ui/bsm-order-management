@@ -1,5 +1,6 @@
 import type { MachineUnitApiRecord, OrderApiRecord, WorkflowStage } from '../../src/lib/dispatch.js';
-import type { CreateMediaRecordInput, DispatchRepository } from '../../src/repositories/dispatchRepository.js';
+import type { NormalizedOrder } from '../../src/lib/zoho.js';
+import type { CreateMediaRecordInput, DispatchRepository, ReconcileZohoOrderResult } from '../../src/repositories/dispatchRepository.js';
 import { getFinancialYearCode, nextSerialNumber } from '../../src/services/serials.js';
 
 function buildMediaFiles(machineUnitId: string, images: number, videos: number) {
@@ -135,6 +136,26 @@ export function createFakeDispatchRepository(): DispatchRepository {
 
   return {
     listOrders,
+    async reconcileZohoOrder(input: NormalizedOrder): Promise<ReconcileZohoOrderResult> {
+      return {
+        order: {
+          id: input.salesOrderNumber,
+          salesOrderNumber: input.salesOrderNumber,
+          customerName: input.customerName,
+          deliveryDate: input.deliveryDate ?? `${input.orderDate}T00:00:00.000Z`,
+          destination: 'Factory dispatch lane',
+          status: 'Awaiting media',
+          machineUnits: input.machineUnits.map((machineUnit, index) => ({
+            id: `${input.salesOrderNumber}-${index + 1}`,
+            zohoLineItemId: machineUnit.zohoLineItemId,
+            productName: machineUnit.productName,
+            quantity: machineUnit.quantity,
+            sku: machineUnit.sku ?? null,
+          })),
+        },
+        deletedMachineUnitIds: [],
+      };
+    },
     async getMachineUnitById(id) {
       const machineUnit = data.get(id);
       return machineUnit ? cloneMachineUnit(machineUnit) : null;

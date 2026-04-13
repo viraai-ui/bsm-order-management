@@ -1,6 +1,7 @@
 import { MachineUnitStatus, MediaKind, OrderStatus, Prisma, type PrismaClient } from '@prisma/client';
-import { getFinancialYearCode, nextSerialNumber } from '../services/serials.js';
 import type { MachineUnitApiRecord, OrderApiRecord, WorkflowStage } from '../lib/dispatch.js';
+import type { NormalizedOrder } from '../lib/zoho.js';
+import { getFinancialYearCode, nextSerialNumber } from '../services/serials.js';
 
 export type UpdateMachineUnitStageInput = {
   id: string;
@@ -14,8 +15,14 @@ export type CreateMediaRecordInput = {
   mimeType?: string | null;
 };
 
+export type ReconcileZohoOrderResult = {
+  order: OrderApiRecord;
+  deletedMachineUnitIds: string[];
+};
+
 export interface DispatchRepository {
   listOrders(): Promise<OrderApiRecord[]>;
+  reconcileZohoOrder(input: NormalizedOrder): Promise<ReconcileZohoOrderResult>;
   getMachineUnitById(id: string): Promise<MachineUnitApiRecord | null>;
   generateSerialNumber(id: string, date?: Date): Promise<MachineUnitApiRecord | null>;
   generateQrCode(id: string): Promise<MachineUnitApiRecord | null>;
@@ -137,6 +144,29 @@ function toWorkflowStage(status: OrderStatus, machineWorkflowStage: WorkflowStag
 }
 
 function mapOrder(order: PrismaOrderPayload): OrderApiRecord {
+  const aggregatedMachineUnits = Array.from(
+    order.machineUnits
+      .reduce((groups, machineUnit) => {
+        const key = machineUnit.externalRef ?? machineUnit.id;
+        const existing = groups.get(key);
+
+        if (existing) {
+          existing.quantity += machineUnit.quantity;
+          return groups;
+        }
+
+        groups.set(key, {
+          id: machineUnit.id,
+          zohoLineItemId: key,
+          productName: machineUnit.name,
+          quantity: machineUnit.quantity,
+          sku: machineUnit.sku
+        });
+        return groups;
+      }, new Map<string, OrderApiRecord['machineUnits'][number]>())
+      .values()
+  );
+
   return {
     id: order.id,
     salesOrderNumber: order.id,
@@ -144,13 +174,7 @@ function mapOrder(order: PrismaOrderPayload): OrderApiRecord {
     deliveryDate: order.dueDate?.toISOString() ?? null,
     destination: order.destination,
     status: toWorkflowStage(order.status, (order.machineUnits[0]?.workflowStage as WorkflowStage | undefined) ?? 'PACKING_TESTING'),
-    machineUnits: order.machineUnits.map((machineUnit) => ({
-      id: machineUnit.id,
-      zohoLineItemId: machineUnit.externalRef ?? machineUnit.id,
-      productName: machineUnit.name,
-      quantity: machineUnit.quantity,
-      sku: machineUnit.sku
-    }))
+    machineUnits: aggregatedMachineUnits
   };
 }
 
@@ -182,6 +206,61 @@ function mapMachineUnit(machineUnit: PrismaMachineUnitPayload): MachineUnitApiRe
       createdAt: file.createdAt.toISOString()
     }))
   };
+}
+
+function mapZohoStatusToOrderStatus(status: string): OrderStatus {
+  switch (status.toLowerCase()) {
+    case 'draft':
+      return OrderStatus.DRAFT;
+    case 'cancelled':
+      return OrderStatus.CANCELLED;
+    case 'delivered':
+    case 'invoiced':
+    case 'completed':
+      return OrderStatus.COMPLETED;
+    case 'shipped':
+    case 'ready_for_dispatch':
+    case 'ready for dispatch':
+      return OrderStatus.READY_FOR_DISPATCH;
+    case 'packed':
+    case 'confirmed':
+      return OrderStatus.PENDING;
+    default:
+      return OrderStatus.IN_PRODUCTION;
+  }
+}
+
+function machineUnitRetentionScore(machineUnit: PrismaOrderPayload['machineUnits'][number]) {
+  const workflowScore =
+    machineUnit.workflowStage === 'READY_FOR_DISPATCH'
+      ? 3
+      : machineUnit.workflowStage === 'MEDIA_UPLOADED'
+        ? 2
+        : 1;
+  const statusScore =
+    machineUnit.status === MachineUnitStatus.READY
+      ? 5
+      : machineUnit.status === MachineUnitStatus.QA
+        ? 4
+        : machineUnit.status === MachineUnitStatus.ASSEMBLY
+          ? 3
+          : machineUnit.status === MachineUnitStatus.CUTTING
+            ? 2
+            : 1;
+
+  return workflowScore * 100 + statusScore * 10 + (machineUnit.serialNumber ? 1 : 0);
+}
+
+function sortByRetentionPriority(machineUnits: PrismaOrderPayload['machineUnits']) {
+  return [...machineUnits].sort((left, right) => {
+    const scoreDifference = machineUnitRetentionScore(right) - machineUnitRetentionScore(left);
+    if (scoreDifference !== 0) return scoreDifference;
+
+    const updatedDifference = right.updatedAt.getTime() - left.updatedAt.getTime();
+    if (updatedDifference !== 0) return updatedDifference;
+
+    return right.id.localeCompare(left.id);
+  });
 }
 
 export async function seedDispatchData(prismaClient: PrismaClient) {
@@ -248,6 +327,162 @@ export class PrismaDispatchRepository implements DispatchRepository {
     });
 
     return orders.map(mapOrder);
+  }
+
+  async reconcileZohoOrder(input: NormalizedOrder): Promise<ReconcileZohoOrderResult> {
+    await this.ensureSeedData();
+
+    const existingOrder = await this.prismaClient.order.findUnique({
+      where: { externalRef: input.zohoSalesOrderId },
+      include: {
+        machineUnits: {
+          orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }]
+        }
+      }
+    });
+
+    const dueDate = input.deliveryDate
+      ? new Date(`${input.deliveryDate}T00:00:00.000Z`)
+      : new Date(`${input.orderDate}T00:00:00.000Z`);
+    const orderData = {
+      externalRef: input.zohoSalesOrderId,
+      customerName: input.customerName,
+      dueDate,
+      status: mapZohoStatusToOrderStatus(input.status)
+    };
+
+    const persistedOrder = existingOrder
+      ? await this.prismaClient.order.update({
+          where: { id: existingOrder.id },
+          data: orderData
+        })
+      : await this.prismaClient.order.create({
+          data: {
+            id: input.salesOrderNumber,
+            destination: 'Factory dispatch lane',
+            ...orderData
+          }
+        });
+
+    const machineUnitsByLineItem = new Map<string, PrismaOrderPayload['machineUnits']>();
+    for (const machineUnit of existingOrder?.machineUnits ?? []) {
+      const key = machineUnit.externalRef ?? machineUnit.id;
+      const siblings = machineUnitsByLineItem.get(key);
+      if (siblings) {
+        siblings.push(machineUnit);
+      } else {
+        machineUnitsByLineItem.set(key, [machineUnit]);
+      }
+    }
+
+    const deletedMachineUnits: PrismaOrderPayload['machineUnits'] = [];
+    const machineUnitsToCreate: Array<{
+      orderId: string;
+      externalRef: string;
+      name: string;
+      sku: string | null;
+      quantity: number;
+    }> = [];
+
+    for (const machineUnit of input.machineUnits) {
+      const existingUnits = sortByRetentionPriority(machineUnitsByLineItem.get(machineUnit.zohoLineItemId) ?? []);
+      const unitsToKeep = existingUnits.slice(0, machineUnit.quantity);
+      const unitsToDelete = existingUnits.slice(machineUnit.quantity);
+      const unitsToCreate = Math.max(machineUnit.quantity - unitsToKeep.length, 0);
+
+      if (unitsToKeep.length > 0) {
+        await this.prismaClient.machineUnit.updateMany({
+          where: { id: { in: unitsToKeep.map((unit) => unit.id) } },
+          data: {
+            externalRef: machineUnit.zohoLineItemId,
+            name: machineUnit.productName,
+            sku: machineUnit.sku ?? null,
+            quantity: 1
+          }
+        });
+      }
+
+      if (unitsToCreate > 0) {
+        machineUnitsToCreate.push(
+          ...Array.from({ length: unitsToCreate }, () => ({
+            orderId: persistedOrder.id,
+            externalRef: machineUnit.zohoLineItemId,
+            name: machineUnit.productName,
+            sku: machineUnit.sku ?? null,
+            quantity: 1
+          }))
+        );
+      }
+
+      if (unitsToDelete.length > 0) {
+        await this.prismaClient.machineUnit.deleteMany({
+          where: { id: { in: unitsToDelete.map((unit) => unit.id) } }
+        });
+        deletedMachineUnits.push(...unitsToDelete);
+      }
+    }
+
+    if (machineUnitsToCreate.length > 0) {
+      await this.prismaClient.machineUnit.createMany({
+        data: machineUnitsToCreate
+      });
+    }
+
+    if (deletedMachineUnits.length > 0) {
+      await this.prismaClient.syncLog.createMany({
+        data: deletedMachineUnits.map((machineUnit) => ({
+          entityType: 'machine_unit',
+          entityId: machineUnit.id,
+          provider: 'zoho_inventory',
+          state: 'SUCCESS' as const,
+          orderId: persistedOrder.id,
+          requestPayload: {
+            zohoSalesOrderId: input.zohoSalesOrderId,
+            zohoLineItemId: machineUnit.externalRef
+          },
+          responsePayload: {
+            deletedMachineUnitId: machineUnit.id,
+            workflowStage: machineUnit.workflowStage,
+            serialNumber: machineUnit.serialNumber
+          },
+          message: `Deleted machine unit ${machineUnit.id} during Zoho reconciliation for line item ${machineUnit.externalRef}`
+        }))
+      });
+    }
+
+    await this.prismaClient.syncLog.create({
+      data: {
+        entityType: 'order',
+        entityId: persistedOrder.id,
+        provider: 'zoho_inventory',
+        state: 'SUCCESS',
+        orderId: persistedOrder.id,
+        requestPayload: input,
+        responsePayload: {
+          deletedMachineUnitIds: deletedMachineUnits.map((machineUnit) => machineUnit.id),
+          reconciledLineItemIds: input.machineUnits.map((machineUnit) => machineUnit.zohoLineItemId)
+        },
+        message: `Reconciled Zoho sales order ${input.salesOrderNumber}`
+      }
+    });
+
+    const reconciledOrder = await this.prismaClient.order.findUnique({
+      where: { id: persistedOrder.id },
+      include: {
+        machineUnits: {
+          orderBy: { id: 'asc' }
+        }
+      }
+    });
+
+    if (!reconciledOrder) {
+      throw new Error(`Reconciled order ${persistedOrder.id} could not be reloaded`);
+    }
+
+    return {
+      order: mapOrder(reconciledOrder),
+      deletedMachineUnitIds: deletedMachineUnits.map((machineUnit) => machineUnit.id)
+    };
   }
 
   async getMachineUnitById(id: string): Promise<MachineUnitApiRecord | null> {
