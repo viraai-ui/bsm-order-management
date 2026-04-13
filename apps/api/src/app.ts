@@ -11,14 +11,20 @@ import { AuthService, type AuthConfig } from './lib/auth.js';
 import { buildApiConfig, type ApiConfig } from './lib/env.js';
 import { prisma } from './lib/prisma.js';
 import { PrismaDispatchRepository } from './repositories/dispatchRepository.js';
+import { createZohoClient } from './services/zohoClient.js';
+import { createZohoSyncService, type ZohoSyncService } from './services/zohoSync.js';
 
 export type AppConfig = ApiConfig;
+
+type CreateAppOverrides = Partial<AppConfig> & {
+  zohoSyncService?: ZohoSyncService;
+};
 
 export async function buildConfigFromEnv(env: NodeJS.ProcessEnv = process.env): Promise<AppConfig> {
   return buildApiConfig(env);
 }
 
-export function createApp(overrides?: Partial<AppConfig>) {
+export function createApp(overrides?: CreateAppOverrides) {
   const authConfig: AuthConfig = overrides?.auth ?? {
     jwtSecret: 'test-only-secret',
     seedUser: {
@@ -33,6 +39,15 @@ export function createApp(overrides?: Partial<AppConfig>) {
   const app = express();
   const authService = new AuthService(authConfig);
   const dispatchRepository = overrides?.dispatchRepository ?? new PrismaDispatchRepository(prisma);
+  const zohoSyncService = overrides?.zohoSyncService ?? (overrides?.zoho
+    ? createZohoSyncService({
+        dispatchRepository,
+        zohoClient: createZohoClient(overrides.zoho),
+        intervalMs: overrides.zoho.syncIntervalMinutes * 60 * 1000
+      })
+    : undefined);
+
+  zohoSyncService?.start();
 
   app.disable('x-powered-by');
   app.use(helmet());
@@ -62,7 +77,7 @@ export function createApp(overrides?: Partial<AppConfig>) {
   });
 
   app.use('/auth', createAuthRouter(authService));
-  app.use('/orders', createOrdersRouter(dispatchRepository));
+  app.use('/orders', createOrdersRouter(dispatchRepository, zohoSyncService));
   app.use('/machine-units', createMachineUnitsRouter(dispatchRepository));
   app.use('/media', createMediaRouter(dispatchRepository));
 

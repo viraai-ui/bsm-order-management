@@ -1,8 +1,8 @@
 import { Router } from 'express';
 import type { DispatchRepository } from '../repositories/dispatchRepository.js';
-import { queueZohoSync } from '../services/zohoSync.js';
+import type { ZohoSyncService } from '../services/zohoSync.js';
 
-export function createOrdersRouter(dispatchRepository: DispatchRepository) {
+export function createOrdersRouter(dispatchRepository: DispatchRepository, zohoSyncService?: ZohoSyncService) {
   const router = Router();
 
   router.get('/', async (_request, response) => {
@@ -11,8 +11,13 @@ export function createOrdersRouter(dispatchRepository: DispatchRepository) {
   });
 
   router.post('/sync', async (_request, response) => {
-    const result = await queueZohoSync(dispatchRepository);
-    response.status(202).json(result);
+    if (!zohoSyncService) {
+      response.status(503).json({ error: 'Zoho sync is not configured' });
+      return;
+    }
+
+    const data = await zohoSyncService.runManualSync();
+    response.status(200).json({ data });
   });
 
   return router;
