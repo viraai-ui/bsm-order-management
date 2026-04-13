@@ -168,6 +168,45 @@ describe('createZohoSyncService', () => {
     service.stop();
     expect(clearIntervalFn).toHaveBeenCalledWith({ id: 'timer-1' });
   });
+
+  it('captures scheduled fetch failures without leaking an unhandled rejection', async () => {
+    const scheduledCallbacks: Array<() => void | Promise<void>> = [];
+    const setIntervalFn = vi.fn((callback: () => void | Promise<void>, _intervalMs: number) => {
+      scheduledCallbacks.push(callback);
+      return { id: 'timer-2' } as unknown as NodeJS.Timeout;
+    });
+
+    const fetchSalesOrders = vi.fn().mockRejectedValue(new Error('zoho unavailable'));
+    const reconcileZohoOrder = vi.fn();
+
+    const service = createZohoSyncService({
+      dispatchRepository: buildDispatchRepository({ reconcileZohoOrder }),
+      zohoClient: { fetchSalesOrders },
+      intervalMs: 15 * 60 * 1000,
+      setIntervalFn,
+      now: sequenceDates('2026-04-13T19:12:00.000Z', '2026-04-13T19:12:01.000Z')
+    });
+
+    service.start();
+
+    await expect(scheduledCallbacks[0]?.()).resolves.toBeUndefined();
+    expect(reconcileZohoOrder).not.toHaveBeenCalled();
+    expect(service.getLastSummary()).toEqual(
+      expect.objectContaining({
+        trigger: 'scheduled',
+        success: false,
+        fetchedOrderCount: 0,
+        failedOrderCount: 1,
+        failedOrders: [
+          expect.objectContaining({
+            salesOrderNumber: 'N/A',
+            zohoSalesOrderId: 'N/A',
+            message: 'zoho unavailable'
+          })
+        ]
+      })
+    );
+  });
 });
 
 function buildDispatchRepository(overrides: Partial<DispatchRepository>): DispatchRepository {

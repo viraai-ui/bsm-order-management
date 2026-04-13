@@ -71,4 +71,13 @@ describe('order routes', () => {
     expect(response.status).toBe(200);
     expect(response.body).toEqual({ data: syncSummary });
   });
+
+  it('returns 503 from POST /orders/sync when Zoho sync is not configured', async () => {
+    const app = createApp({ dispatchRepository: createFakeDispatchRepository() });
+
+    const response = await request(app).post('/orders/sync');
+
+    expect(response.status).toBe(503);
+    expect(response.body).toEqual({ error: 'Zoho sync is not configured' });
+  });
 });
