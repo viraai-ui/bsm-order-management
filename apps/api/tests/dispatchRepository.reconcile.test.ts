@@ -22,6 +22,7 @@ describe('PrismaDispatchRepository Zoho reconciliation', () => {
       }));
 
     const prisma = {
+      $transaction: vi.fn(async (callback: (tx: any) => Promise<unknown>) => callback(prisma)),
       order: {
         count: vi.fn().mockResolvedValue(1),
         findUnique: orderFindUnique,
@@ -106,6 +107,7 @@ describe('PrismaDispatchRepository Zoho reconciliation', () => {
       .mockResolvedValueOnce(reconciledOrder);
 
     const prisma = {
+      $transaction: vi.fn(async (callback: (tx: any) => Promise<unknown>) => callback(prisma)),
       order: {
         count: vi.fn().mockResolvedValue(1),
         findUnique: orderFindUnique,
