@@ -1,0 +1,126 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  ADMIN
+  MANAGER
+  OPERATOR
+}
+
+enum OrderStatus {
+  DRAFT
+  PENDING
+  IN_PRODUCTION
+  READY_FOR_DISPATCH
+  COMPLETED
+  CANCELLED
+}
+
+enum MachineUnitStatus {
+  PENDING
+  CUTTING
+  ASSEMBLY
+  QA
+  READY
+  DISPATCHED
+}
+
+enum MediaKind {
+  IMAGE
+  VIDEO
+  DOCUMENT
+}
+
+enum SyncState {
+  PENDING
+  SUCCESS
+  FAILED
+}
+
+model User {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  name         String
+  passwordHash String
+  role         UserRole  @default(OPERATOR)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  orders       Order[]   @relation("OrderCreatedBy")
+  syncLogs     SyncLog[] @relation("SyncTriggeredBy")
+}
+
+model Order {
+  id             String          @id @default(cuid())
+  externalRef    String?         @unique
+  customerName   String
+  customerEmail  String?
+  dueDate        DateTime?
+  status         OrderStatus     @default(PENDING)
+  notes          String?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  createdById    String?
+  createdBy      User?           @relation("OrderCreatedBy", fields: [createdById], references: [id])
+  machineUnits   MachineUnit[]
+  mediaFiles     MediaFile[]
+  syncLogs       SyncLog[]
+}
+
+model MachineUnit {
+  id            String            @id @default(cuid())
+  orderId       String
+  serialNumber  String?           @unique
+  qrCodeValue   String?
+  name          String
+  sku           String?
+  quantity      Int               @default(1)
+  status        MachineUnitStatus @default(PENDING)
+  location      String?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+  order         Order             @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  mediaFiles    MediaFile[]
+}
+
+model MediaFile {
+  id            String      @id @default(cuid())
+  orderId       String?
+  machineUnitId String?
+  kind          MediaKind
+  fileName      String
+  storagePath   String
+  mimeType      String?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  order         Order?      @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  machineUnit   MachineUnit? @relation(fields: [machineUnitId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@index([machineUnitId])
+}
+
+model SyncLog {
+  id             String     @id @default(cuid())
+  entityType     String
+  entityId       String
+  provider       String
+  state          SyncState  @default(PENDING)
+  requestPayload Json?
+  responsePayload Json?
+  message        String?
+  triggeredById  String?
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+  orderId        String?
+  order          Order?     @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  triggeredBy    User?      @relation("SyncTriggeredBy", fields: [triggeredById], references: [id])
+
+  @@index([entityType, entityId])
+  @@index([state])
+}
