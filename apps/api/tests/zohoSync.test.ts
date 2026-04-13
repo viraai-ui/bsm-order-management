@@ -149,7 +149,7 @@ describe('createZohoSyncService', () => {
     service.start();
     expect(setIntervalFn).toHaveBeenCalledWith(expect.any(Function), 15 * 60 * 1000);
 
-    const firstRun = scheduledCallbacks[0]?.();
+    scheduledCallbacks[0]?.();
     await Promise.resolve();
     const skippedRun = scheduledCallbacks[0]?.();
     await Promise.resolve();
@@ -158,7 +158,8 @@ describe('createZohoSyncService', () => {
     expect(skippedRun).toBeUndefined();
 
     resolveRun?.();
-    await firstRun;
+    await Promise.resolve();
+    await Promise.resolve();
 
     expect(reconcileZohoOrder).toHaveBeenCalledTimes(1);
     expect(service.getLastSummary()).toEqual(
@@ -189,7 +190,8 @@ describe('createZohoSyncService', () => {
 
     service.start();
 
-    await expect(scheduledCallbacks[0]?.()).resolves.toBeUndefined();
+    scheduledCallbacks[0]?.();
+    await Promise.resolve();
     expect(reconcileZohoOrder).not.toHaveBeenCalled();
     expect(service.getLastSummary()).toEqual(
       expect.objectContaining({

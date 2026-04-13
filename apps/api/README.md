@@ -55,6 +55,13 @@ JWT_SECRET=replace-with-a-long-random-secret
 AUTH_SEED_EMAIL=admin@bsm.local
 AUTH_SEED_NAME=BSM Admin
 AUTH_SEED_PASSWORD=ChangeMe123!
+ZOHO_CLIENT_ID=...
+ZOHO_CLIENT_SECRET=...
+ZOHO_REFRESH_TOKEN=...
+ZOHO_ORGANIZATION_ID=60019065510
+ZOHO_API_BASE_URL=https://www.zohoapis.in
+ZOHO_SYNC_INTERVAL_MINUTES=15
+ZOHO_ACTIVE_ORDER_STATUSES=confirmed,open,pending_dispatch
 ```
 
 First live boot:
@@ -69,3 +76,5 @@ Notes:
 - Migration jobs or CI should use `DIRECT_DATABASE_URL`.
 - If your deployment platform runs migrations in a separate step, set both variables there as well.
 - Seed is idempotent, it only inserts the default dispatch data when the orders table is empty.
+- Zoho sync starts with the API process and runs on the configured interval.
+- Manual sync is available via `POST /orders/sync`.

@@ -1,4 +1,5 @@
 import { mapZohoSalesOrder } from './zohoMapper.js';
+import { startZohoScheduler, type ZohoSchedulerHandle } from './zohoScheduler.js';
 import type { OrderApiRecord } from '../lib/dispatch.js';
 import type { ZohoSalesOrder } from '../lib/zoho.js';
 import type { DispatchRepository } from '../repositories/dispatchRepository.js';
@@ -54,8 +55,8 @@ export function createZohoSyncService({
   clearIntervalFn = clearInterval
 }: CreateZohoSyncServiceInput): ZohoSyncService {
   let lastSummary: ZohoSyncSummary | null = null;
-  let timer: ReturnType<typeof setInterval> | null = null;
   let activeRun: Promise<ZohoSyncSummary> | null = null;
+  let scheduler: ZohoSchedulerHandle | null = null;
 
   const buildSummary = (
     trigger: ZohoSyncTrigger,
@@ -148,31 +149,26 @@ export function createZohoSyncService({
 
   return {
     start() {
-      if (timer || intervalMs <= 0) {
+      if (scheduler) {
         return;
       }
 
-      timer = setIntervalFn(() => {
-        if (activeRun) {
-          return;
-        }
+      scheduler = startZohoScheduler({
+        intervalMs,
+        runSync: () => {
+          if (activeRun) {
+            return activeRun;
+          }
 
-        return runSync('scheduled').catch(() => {
-          // Scheduled sync failures are captured in lastSummary and should not crash the process.
-        });
-      }, intervalMs);
-
-      if (typeof timer === 'object' && timer !== null && 'unref' in timer && typeof timer.unref === 'function') {
-        timer.unref();
-      }
+          return runSync('scheduled');
+        },
+        setIntervalFn,
+        clearIntervalFn
+      });
     },
     stop() {
-      if (!timer) {
-        return;
-      }
-
-      clearIntervalFn(timer);
-      timer = null;
+      scheduler?.stop();
+      scheduler = null;
     },
     runManualSync() {
       return runSync('manual');
