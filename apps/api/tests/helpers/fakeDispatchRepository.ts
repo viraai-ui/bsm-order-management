@@ -1,6 +1,29 @@
 import type { MachineUnitApiRecord, OrderApiRecord, WorkflowStage } from '../../src/lib/dispatch.js';
-import type { DispatchRepository } from '../../src/repositories/dispatchRepository.js';
+import type { CreateMediaRecordInput, DispatchRepository } from '../../src/repositories/dispatchRepository.js';
 import { getFinancialYearCode, nextSerialNumber } from '../../src/services/serials.js';
+
+function buildMediaFiles(machineUnitId: string, images: number, videos: number) {
+  return [
+    ...Array.from({ length: images }, (_, index) => ({
+      id: `${machineUnitId}-image-${index + 1}`,
+      machineUnitId,
+      kind: 'IMAGE' as const,
+      fileName: `${machineUnitId}-photo-${index + 1}.jpg`,
+      storagePath: `seed/${machineUnitId}/photo-${index + 1}.jpg`,
+      mimeType: 'image/jpeg',
+      createdAt: new Date(Date.UTC(2026, 3, 13, 8, index, 0)).toISOString(),
+    })),
+    ...Array.from({ length: videos }, (_, index) => ({
+      id: `${machineUnitId}-video-${index + 1}`,
+      machineUnitId,
+      kind: 'VIDEO' as const,
+      fileName: `${machineUnitId}-video-${index + 1}.mp4`,
+      storagePath: `seed/${machineUnitId}/video-${index + 1}.mp4`,
+      mimeType: 'video/mp4',
+      createdAt: new Date(Date.UTC(2026, 3, 13, 9, index, 0)).toISOString(),
+    })),
+  ];
+}
 
 const machineUnits = new Map<string, MachineUnitApiRecord>([
   [
@@ -18,8 +41,9 @@ const machineUnits = new Map<string, MachineUnitApiRecord>([
       imageCount: 4,
       videoCount: 0,
       requiredVideoCount: 2,
-      workflowStage: 'PACKING_TESTING'
-    }
+      workflowStage: 'PACKING_TESTING',
+      mediaFiles: buildMediaFiles('MU-24018-1', 4, 0),
+    },
   ],
   [
     'MU-24021-1',
@@ -36,8 +60,9 @@ const machineUnits = new Map<string, MachineUnitApiRecord>([
       imageCount: 6,
       videoCount: 2,
       requiredVideoCount: 2,
-      workflowStage: 'READY_FOR_DISPATCH'
-    }
+      workflowStage: 'READY_FOR_DISPATCH',
+      mediaFiles: buildMediaFiles('MU-24021-1', 6, 2),
+    },
   ],
   [
     'MU-24025-1',
@@ -54,8 +79,9 @@ const machineUnits = new Map<string, MachineUnitApiRecord>([
       imageCount: 5,
       videoCount: 2,
       requiredVideoCount: 2,
-      workflowStage: 'MEDIA_UPLOADED'
-    }
+      workflowStage: 'MEDIA_UPLOADED',
+      mediaFiles: buildMediaFiles('MU-24025-1', 5, 2),
+    },
   ],
   [
     'MU-24029-1',
@@ -72,17 +98,22 @@ const machineUnits = new Map<string, MachineUnitApiRecord>([
       imageCount: 3,
       videoCount: 1,
       requiredVideoCount: 2,
-      workflowStage: 'MEDIA_UPLOADED'
-    }
-  ]
+      workflowStage: 'MEDIA_UPLOADED',
+      mediaFiles: buildMediaFiles('MU-24029-1', 3, 1),
+    },
+  ],
 ]);
 
 function cloneMachineUnit(machineUnit: MachineUnitApiRecord): MachineUnitApiRecord {
-  return { ...machineUnit };
+  return {
+    ...machineUnit,
+    mediaFiles: machineUnit.mediaFiles.map((file) => ({ ...file })),
+  };
 }
 
 export function createFakeDispatchRepository(): DispatchRepository {
   const data = new Map(Array.from(machineUnits.entries(), ([id, machineUnit]) => [id, cloneMachineUnit(machineUnit)]));
+  let mediaSequence = 1;
 
   const listOrders = async (): Promise<OrderApiRecord[]> => Array.from(data.values()).map((machineUnit) => ({
     id: machineUnit.orderId,
@@ -97,9 +128,9 @@ export function createFakeDispatchRepository(): DispatchRepository {
         zohoLineItemId: machineUnit.id,
         productName: machineUnit.productName,
         quantity: 1,
-        sku: null
-      }
-    ]
+        sku: null,
+      },
+    ],
   }));
 
   return {
@@ -134,6 +165,38 @@ export function createFakeDispatchRepository(): DispatchRepository {
       if (!machineUnit) return null;
       machineUnit.workflowStage = workflowStage;
       return cloneMachineUnit(machineUnit);
-    }
+    },
+    async createMediaRecord(input: CreateMediaRecordInput) {
+      const machineUnit = data.get(input.machineUnitId);
+      if (!machineUnit) return null;
+
+      const record = {
+        id: `media-${mediaSequence++}`,
+        machineUnitId: input.machineUnitId,
+        kind: input.kind,
+        fileName: input.fileName,
+        storagePath: `uploads/${input.machineUnitId}/${input.fileName}`,
+        mimeType: input.mimeType ?? null,
+        createdAt: new Date('2026-04-13T10:54:00.000Z').toISOString(),
+      };
+
+      machineUnit.mediaFiles = [...machineUnit.mediaFiles, record];
+      if (input.kind === 'IMAGE') machineUnit.imageCount += 1;
+      if (input.kind === 'VIDEO') machineUnit.videoCount += 1;
+      return cloneMachineUnit(machineUnit);
+    },
+    async deleteMediaRecord(id) {
+      for (const machineUnit of data.values()) {
+        const deleted = machineUnit.mediaFiles.find((file) => file.id === id);
+        if (!deleted) continue;
+
+        machineUnit.mediaFiles = machineUnit.mediaFiles.filter((file) => file.id !== id);
+        if (deleted.kind === 'IMAGE') machineUnit.imageCount = Math.max(machineUnit.imageCount - 1, 0);
+        if (deleted.kind === 'VIDEO') machineUnit.videoCount = Math.max(machineUnit.videoCount - 1, 0);
+        return cloneMachineUnit(machineUnit);
+      }
+
+      return null;
+    },
   };
 }

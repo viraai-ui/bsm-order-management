@@ -6,6 +6,7 @@ import helmet from 'helmet';
 import { z } from 'zod';
 import { createAuthRouter } from './routes/auth.js';
 import { createMachineUnitsRouter } from './routes/machineUnits.js';
+import { createMediaRouter } from './routes/media.js';
 import { createOrdersRouter } from './routes/orders.js';
 import { AuthService, type AuthConfig } from './lib/auth.js';
 import { prisma } from './lib/prisma.js';
@@ -103,6 +104,7 @@ export function createApp(overrides?: Partial<AppConfig>) {
   app.use('/auth', createAuthRouter(authService));
   app.use('/orders', createOrdersRouter(dispatchRepository));
   app.use('/machine-units', createMachineUnitsRouter(dispatchRepository));
+  app.use('/media', createMediaRouter(dispatchRepository));
 
   app.use((error: unknown, _request: express.Request, response: express.Response, _next: express.NextFunction) => {
     console.error(error);

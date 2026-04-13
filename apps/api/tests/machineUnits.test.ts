@@ -46,6 +46,44 @@ describe('machine unit routes', () => {
     expect(response.body.data.workflowStage).toBe('READY_FOR_DISPATCH');
   });
 
+  it('adds media records to a machine unit and updates counts', async () => {
+    const app = createApp({ dispatchRepository: createFakeDispatchRepository() });
+
+    const response = await request(app)
+      .post('/machine-units/MU-24018-1/media')
+      .send({ kind: 'VIDEO', fileName: 'test-run.mp4', mimeType: 'video/mp4' });
+
+    expect(response.status).toBe(201);
+    expect(response.body.data.videoCount).toBe(1);
+    expect(response.body.data.mediaFiles).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'VIDEO',
+          fileName: 'test-run.mp4',
+          mimeType: 'video/mp4',
+        }),
+      ]),
+    );
+  });
+
+  it('deletes media records from a machine unit and updates counts', async () => {
+    const app = createApp({ dispatchRepository: createFakeDispatchRepository() });
+
+    const createResponse = await request(app)
+      .post('/machine-units/MU-24018-1/media')
+      .send({ kind: 'IMAGE', fileName: 'fresh-photo.jpg', mimeType: 'image/jpeg' });
+
+    const mediaId = createResponse.body.data.mediaFiles.find((file: { fileName: string }) => file.fileName === 'fresh-photo.jpg')?.id;
+
+    const deleteResponse = await request(app).delete(`/media/${mediaId}`);
+
+    expect(deleteResponse.status).toBe(200);
+    expect(deleteResponse.body.data.imageCount).toBe(4);
+    expect(deleteResponse.body.data.mediaFiles).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: mediaId })]),
+    );
+  });
+
   it('returns persisted machine unit context from the repository', async () => {
     const app = createApp({ dispatchRepository: createFakeDispatchRepository() });
 

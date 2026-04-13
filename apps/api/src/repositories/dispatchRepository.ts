@@ -7,12 +7,21 @@ export type UpdateMachineUnitStageInput = {
   workflowStage: WorkflowStage;
 };
 
+export type CreateMediaRecordInput = {
+  machineUnitId: string;
+  kind: MediaKind;
+  fileName: string;
+  mimeType?: string | null;
+};
+
 export interface DispatchRepository {
   listOrders(): Promise<OrderApiRecord[]>;
   getMachineUnitById(id: string): Promise<MachineUnitApiRecord | null>;
   generateSerialNumber(id: string, date?: Date): Promise<MachineUnitApiRecord | null>;
   generateQrCode(id: string): Promise<MachineUnitApiRecord | null>;
   updateMachineUnitWorkflowStage(input: UpdateMachineUnitStageInput): Promise<MachineUnitApiRecord | null>;
+  createMediaRecord(input: CreateMediaRecordInput): Promise<MachineUnitApiRecord | null>;
+  deleteMediaRecord(id: string): Promise<MachineUnitApiRecord | null>;
 }
 
 type PrismaMachineUnitPayload = Prisma.MachineUnitGetPayload<{
@@ -271,6 +280,34 @@ export class PrismaDispatchRepository implements DispatchRepository {
     });
 
     return mapMachineUnit(updated);
+  }
+
+  async createMediaRecord(input: CreateMediaRecordInput): Promise<MachineUnitApiRecord | null> {
+    await this.ensureSeedData();
+    const machineUnit = await this.prismaClient.machineUnit.findUnique({ where: { id: input.machineUnitId } });
+    if (!machineUnit) return null;
+
+    await this.prismaClient.mediaFile.create({
+      data: {
+        machineUnitId: input.machineUnitId,
+        orderId: machineUnit.orderId,
+        kind: input.kind,
+        fileName: input.fileName,
+        storagePath: `uploads/${input.machineUnitId}/${Date.now()}-${input.fileName}`,
+        mimeType: input.mimeType ?? null
+      }
+    });
+
+    return this.getMachineUnitById(input.machineUnitId);
+  }
+
+  async deleteMediaRecord(id: string): Promise<MachineUnitApiRecord | null> {
+    await this.ensureSeedData();
+    const mediaFile = await this.prismaClient.mediaFile.findUnique({ where: { id } });
+    if (!mediaFile?.machineUnitId) return null;
+
+    await this.prismaClient.mediaFile.delete({ where: { id } });
+    return this.getMachineUnitById(mediaFile.machineUnitId);
   }
 
   private async ensureSeedData() {

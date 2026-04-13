@@ -1,7 +1,14 @@
 import { Router } from 'express';
+import { z } from 'zod';
 import type { DispatchRepository } from '../repositories/dispatchRepository.js';
 import type { WorkflowStage } from '../lib/dispatch.js';
 import { evaluateWorkflowReadiness } from '../services/workflow.js';
+
+const createMediaSchema = z.object({
+  kind: z.enum(['IMAGE', 'VIDEO', 'DOCUMENT']),
+  fileName: z.string().min(1),
+  mimeType: z.string().min(1).optional(),
+});
 
 export function createMachineUnitsRouter(dispatchRepository: DispatchRepository) {
   const router = Router();
@@ -58,6 +65,29 @@ export function createMachineUnitsRouter(dispatchRepository: DispatchRepository)
 
     const machineUnit = await dispatchRepository.generateQrCode(request.params.id);
     response.status(200).json(buildResponse(machineUnit ?? existing));
+  });
+
+  router.post('/:id/media', async (request, response) => {
+    const parsed = createMediaSchema.safeParse(request.body);
+
+    if (!parsed.success) {
+      response.status(400).json({ error: 'Invalid media payload' });
+      return;
+    }
+
+    const machineUnit = await dispatchRepository.createMediaRecord({
+      machineUnitId: request.params.id,
+      kind: parsed.data.kind,
+      fileName: parsed.data.fileName,
+      mimeType: parsed.data.mimeType,
+    });
+
+    if (!machineUnit) {
+      response.status(404).json({ error: 'Machine unit not found' });
+      return;
+    }
+
+    response.status(201).json(buildResponse(machineUnit));
   });
 
   router.patch('/:id', async (request, response) => {
