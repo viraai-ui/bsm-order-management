@@ -3,6 +3,8 @@ import { Link, useParams } from 'react-router-dom';
 import { MachineStatusPanel } from '../components/MachineStatusPanel';
 import { MediaUploadPanel } from '../components/MediaUploadPanel';
 import {
+  addMediaToMachineUnit,
+  deleteMedia,
   fetchMachineUnitById,
   generateQrForMachineUnit,
   generateSerialForMachineUnit,
@@ -16,7 +18,7 @@ export function MachineUnitPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [activeAction, setActiveAction] = useState<'serial' | 'qr' | 'ready' | null>(null);
+  const [activeAction, setActiveAction] = useState<'serial' | 'qr' | 'ready' | 'media' | null>(null);
 
   const loadMachine = useCallback(async () => {
     setLoading(true);
@@ -37,7 +39,7 @@ export function MachineUnitPage() {
     void loadMachine();
   }, [loadMachine]);
 
-  async function runAction(action: 'serial' | 'qr' | 'ready', request: () => Promise<MachineUnitDetail>) {
+  async function runAction(action: 'serial' | 'qr' | 'ready' | 'media', request: () => Promise<MachineUnitDetail>) {
     setActionError(null);
     setActiveAction(action);
 
@@ -61,6 +63,14 @@ export function MachineUnitPage() {
 
   function handleMarkReady() {
     void runAction('ready', () => markMachineUnitReadyForDispatch(id));
+  }
+
+  async function handleAddMedia(input: { kind: 'IMAGE' | 'VIDEO' | 'DOCUMENT'; fileName: string; mimeType?: string }) {
+    await runAction('media', () => addMediaToMachineUnit(id, input));
+  }
+
+  async function handleDeleteMedia(mediaId: string) {
+    await runAction('media', () => deleteMedia(mediaId));
   }
 
   if (loading) {
@@ -122,7 +132,15 @@ export function MachineUnitPage() {
       </section>
 
       <section className="machine-body-grid">
-        <MediaUploadPanel photos={machine.photos} videos={machine.videos} requiredVideos={machine.requiredVideos} />
+        <MediaUploadPanel
+          photos={machine.photos}
+          videos={machine.videos}
+          requiredVideos={machine.requiredVideos}
+          mediaFiles={machine.mediaFiles}
+          disabled={activeAction !== null}
+          onAddMedia={handleAddMedia}
+          onDeleteMedia={handleDeleteMedia}
+        />
 
         <section className="detail-panel">
           <div className="detail-panel-header">

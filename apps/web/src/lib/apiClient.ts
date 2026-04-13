@@ -11,6 +11,14 @@ export type DispatchOrder = {
   priority: 'High' | 'Medium' | 'Normal';
 };
 
+export type MediaRecord = {
+  id: string;
+  kind: 'IMAGE' | 'VIDEO' | 'DOCUMENT';
+  fileName: string;
+  mimeType: string | null;
+  createdAt: string;
+};
+
 export type MachineUnitDetail = {
   id: string;
   unitCode: string;
@@ -26,6 +34,7 @@ export type MachineUnitDetail = {
   photos: number;
   videos: number;
   requiredVideos: number;
+  mediaFiles: MediaRecord[];
 };
 
 type OrdersApiItem = {
@@ -57,6 +66,15 @@ type MachineUnitApiItem = {
   videoCount: number;
   requiredVideoCount: number;
   workflowStage: 'PACKING_TESTING' | 'MEDIA_UPLOADED' | 'READY_FOR_DISPATCH';
+  mediaFiles: {
+    id: string;
+    machineUnitId: string;
+    kind: 'IMAGE' | 'VIDEO' | 'DOCUMENT';
+    fileName: string;
+    storagePath: string;
+    mimeType: string | null;
+    createdAt: string;
+  }[];
 };
 
 type WorkflowApiItem = {
@@ -158,6 +176,13 @@ export function mapMachineUnitDetail(
     photos: machine.imageCount,
     videos: machine.videoCount,
     requiredVideos: machine.requiredVideoCount,
+    mediaFiles: machine.mediaFiles.map((file) => ({
+      id: file.id,
+      kind: file.kind,
+      fileName: file.fileName,
+      mimeType: file.mimeType,
+      createdAt: file.createdAt,
+    })),
   };
 }
 
@@ -220,6 +245,24 @@ export async function markMachineUnitReadyForDispatch(id: string): Promise<Machi
   const payload = await fetchJson<{ data: MachineUnitApiItem; workflow: WorkflowApiItem }>(`/machine-units/${id}`, {
     method: 'PATCH',
     body: JSON.stringify({ workflowStage: 'READY_FOR_DISPATCH' }),
+  });
+  return mapMachineUnitDetail(payload.data, payload.workflow);
+}
+
+export async function addMediaToMachineUnit(
+  id: string,
+  input: { kind: 'IMAGE' | 'VIDEO' | 'DOCUMENT'; fileName: string; mimeType?: string },
+): Promise<MachineUnitDetail> {
+  const payload = await fetchJson<{ data: MachineUnitApiItem; workflow: WorkflowApiItem }>(`/machine-units/${id}/media`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+  return mapMachineUnitDetail(payload.data, payload.workflow);
+}
+
+export async function deleteMedia(mediaId: string): Promise<MachineUnitDetail> {
+  const payload = await fetchJson<{ data: MachineUnitApiItem; workflow: WorkflowApiItem }>(`/media/${mediaId}`, {
+    method: 'DELETE',
   });
   return mapMachineUnitDetail(payload.data, payload.workflow);
 }

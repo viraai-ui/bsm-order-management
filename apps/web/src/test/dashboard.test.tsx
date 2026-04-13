@@ -53,6 +53,17 @@ beforeEach(() => {
             videoCount: 0,
             requiredVideoCount: 2,
             workflowStage: 'PACKING_TESTING',
+            mediaFiles: [
+              {
+                id: 'media-1',
+                machineUnitId: 'MU-24018-1',
+                kind: 'IMAGE',
+                fileName: 'packing-photo-1.jpg',
+                storagePath: 'seed/packing-photo-1.jpg',
+                mimeType: 'image/jpeg',
+                createdAt: '2026-04-13T08:30:00Z',
+              },
+            ],
           },
           workflow: {
             dispatchReady: false,
@@ -80,6 +91,7 @@ beforeEach(() => {
             videoCount: 0,
             requiredVideoCount: 2,
             workflowStage: 'PACKING_TESTING',
+            mediaFiles: [],
           },
           workflow: {
             dispatchReady: false,
@@ -94,6 +106,91 @@ beforeEach(() => {
         ok: false,
         status: 409,
         json: async () => ({ error: 'Serial number must exist before generating a QR code' }),
+      });
+    }
+
+    if (input.endsWith('/machine-units/MU-24018-1/media') && init?.method === 'POST') {
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          data: {
+            id: 'MU-24018-1',
+            orderId: 'order-1',
+            orderNumber: 'BSM-24018',
+            customerName: 'Anand Cooling Towers',
+            destination: 'Delhi NCR',
+            scheduledFor: '2026-04-13T08:30:00Z',
+            productName: 'Axial Fan Unit',
+            serialNumber: null,
+            qrCodeValue: null,
+            imageCount: 4,
+            videoCount: 1,
+            requiredVideoCount: 2,
+            workflowStage: 'PACKING_TESTING',
+            mediaFiles: [
+              {
+                id: 'media-1',
+                machineUnitId: 'MU-24018-1',
+                kind: 'IMAGE',
+                fileName: 'packing-photo-1.jpg',
+                storagePath: 'seed/packing-photo-1.jpg',
+                mimeType: 'image/jpeg',
+                createdAt: '2026-04-13T08:30:00Z',
+              },
+              {
+                id: 'media-2',
+                machineUnitId: 'MU-24018-1',
+                kind: 'VIDEO',
+                fileName: 'test-run.mp4',
+                storagePath: 'uploads/test-run.mp4',
+                mimeType: 'video/mp4',
+                createdAt: '2026-04-13T08:35:00Z',
+              },
+            ],
+          },
+          workflow: {
+            dispatchReady: false,
+            nextStage: 'PACKING_TESTING',
+          },
+        }),
+      });
+    }
+
+    if (input.endsWith('/media/media-2') && init?.method === 'DELETE') {
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          data: {
+            id: 'MU-24018-1',
+            orderId: 'order-1',
+            orderNumber: 'BSM-24018',
+            customerName: 'Anand Cooling Towers',
+            destination: 'Delhi NCR',
+            scheduledFor: '2026-04-13T08:30:00Z',
+            productName: 'Axial Fan Unit',
+            serialNumber: null,
+            qrCodeValue: null,
+            imageCount: 4,
+            videoCount: 0,
+            requiredVideoCount: 2,
+            workflowStage: 'PACKING_TESTING',
+            mediaFiles: [
+              {
+                id: 'media-1',
+                machineUnitId: 'MU-24018-1',
+                kind: 'IMAGE',
+                fileName: 'packing-photo-1.jpg',
+                storagePath: 'seed/packing-photo-1.jpg',
+                mimeType: 'image/jpeg',
+                createdAt: '2026-04-13T08:30:00Z',
+              },
+            ],
+          },
+          workflow: {
+            dispatchReady: false,
+            nextStage: 'PACKING_TESTING',
+          },
+        }),
       });
     }
 
@@ -137,6 +234,28 @@ describe('dashboard detail flow', () => {
 
     await waitFor(() => {
       expect(screen.getByText('262700014')).toBeInTheDocument();
+    });
+  });
+
+  it('adds and removes media records from the machine unit view', async () => {
+    const user = userEvent.setup();
+    renderWithRoutes(['/machine-units/MU-24018-1']);
+
+    expect(await screen.findByText('packing-photo-1.jpg')).toBeInTheDocument();
+
+    await user.selectOptions(screen.getByLabelText('Media type'), 'VIDEO');
+    await user.type(screen.getByLabelText('File name'), 'test-run.mp4');
+    await user.click(screen.getByRole('button', { name: 'Add media record' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('test-run.mp4')).toBeInTheDocument();
+      expect(screen.getByLabelText('Videos count')).toHaveTextContent('1');
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Remove test-run.mp4' }));
+
+    await waitFor(() => {
+      expect(screen.queryByText('test-run.mp4')).not.toBeInTheDocument();
     });
   });
 });

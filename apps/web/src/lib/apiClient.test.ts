@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   ApiError,
+  addMediaToMachineUnit,
+  deleteMedia,
   fetchDashboardOrders,
   fetchMachineUnitById,
   groupOrdersByBucket,
@@ -97,6 +99,17 @@ describe('apiClient', () => {
           videoCount: 2,
           requiredVideoCount: 2,
           workflowStage: 'READY_FOR_DISPATCH',
+          mediaFiles: [
+            {
+              id: 'media-1',
+              machineUnitId: 'MU-24018-1',
+              kind: 'IMAGE',
+              fileName: 'proof-1.jpg',
+              storagePath: 'seed/proof-1.jpg',
+              mimeType: 'image/jpeg',
+              createdAt: '2026-04-13T08:30:00Z',
+            },
+          ],
         },
         workflow: {
           dispatchReady: true,
@@ -121,6 +134,17 @@ describe('apiClient', () => {
           videoCount: 2,
           requiredVideoCount: 2,
           workflowStage: 'READY_FOR_DISPATCH',
+          mediaFiles: [
+            {
+              id: 'media-1',
+              machineUnitId: 'MU-24018-1',
+              kind: 'IMAGE',
+              fileName: 'proof-1.jpg',
+              storagePath: 'seed/proof-1.jpg',
+              mimeType: 'image/jpeg',
+              createdAt: '2026-04-13T08:30:00Z',
+            },
+          ],
         },
         {
           dispatchReady: true,
@@ -128,5 +152,85 @@ describe('apiClient', () => {
         },
       ),
     );
+  });
+
+  it('adds a media record to a machine unit via the API', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        data: {
+          id: 'MU-24018-1',
+          orderId: 'order-1',
+          orderNumber: 'BSM-24018',
+          customerName: 'Anand Cooling Towers',
+          destination: 'Delhi NCR',
+          scheduledFor: '2026-04-13T08:30:00Z',
+          productName: 'Axial Fan Unit',
+          serialNumber: '262700014',
+          qrCodeValue: 'qr-1',
+          imageCount: 5,
+          videoCount: 2,
+          requiredVideoCount: 2,
+          workflowStage: 'READY_FOR_DISPATCH',
+          mediaFiles: [
+            {
+              id: 'media-2',
+              machineUnitId: 'MU-24018-1',
+              kind: 'IMAGE',
+              fileName: 'fresh-proof.jpg',
+              storagePath: 'uploads/MU-24018-1/fresh-proof.jpg',
+              mimeType: 'image/jpeg',
+              createdAt: '2026-04-13T09:30:00Z',
+            },
+          ],
+        },
+        workflow: {
+          dispatchReady: true,
+          nextStage: 'READY_FOR_DISPATCH',
+        },
+      }),
+    }));
+
+    await expect(addMediaToMachineUnit('MU-24018-1', {
+      kind: 'IMAGE',
+      fileName: 'fresh-proof.jpg',
+      mimeType: 'image/jpeg',
+    })).resolves.toEqual(expect.objectContaining({
+      photos: 5,
+      mediaFiles: [expect.objectContaining({ fileName: 'fresh-proof.jpg', kind: 'IMAGE' })],
+    }));
+  });
+
+  it('deletes a media record via the API', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        data: {
+          id: 'MU-24018-1',
+          orderId: 'order-1',
+          orderNumber: 'BSM-24018',
+          customerName: 'Anand Cooling Towers',
+          destination: 'Delhi NCR',
+          scheduledFor: '2026-04-13T08:30:00Z',
+          productName: 'Axial Fan Unit',
+          serialNumber: '262700014',
+          qrCodeValue: 'qr-1',
+          imageCount: 4,
+          videoCount: 2,
+          requiredVideoCount: 2,
+          workflowStage: 'READY_FOR_DISPATCH',
+          mediaFiles: [],
+        },
+        workflow: {
+          dispatchReady: true,
+          nextStage: 'READY_FOR_DISPATCH',
+        },
+      }),
+    }));
+
+    await expect(deleteMedia('media-2')).resolves.toEqual(expect.objectContaining({
+      photos: 4,
+      mediaFiles: [],
+    }));
   });
 });
