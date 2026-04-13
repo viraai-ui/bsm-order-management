@@ -37,7 +37,7 @@ type PrismaOrderPayload = Prisma.OrderGetPayload<{
   };
 }>;
 
-const defaultSeedOrders = [
+export const defaultSeedOrders = [
   {
     id: 'BSM-24018',
     customerName: 'Anand Cooling Towers',
@@ -184,6 +184,55 @@ function mapMachineUnit(machineUnit: PrismaMachineUnitPayload): MachineUnitApiRe
   };
 }
 
+export async function seedDispatchData(prismaClient: PrismaClient) {
+  const orderCount = await prismaClient.order.count();
+  if (orderCount > 0) return;
+
+  await prismaClient.$transaction(async (tx) => {
+    for (const order of defaultSeedOrders) {
+      await tx.order.create({
+        data: {
+          id: order.id,
+          customerName: order.customerName,
+          dueDate: order.dueDate,
+          destination: order.destination,
+          status: order.status,
+          machineUnits: {
+            create: order.machineUnits.map((machineUnit) => ({
+              id: machineUnit.id,
+              externalRef: machineUnit.externalRef,
+              name: machineUnit.name,
+              sku: machineUnit.sku,
+              quantity: machineUnit.quantity,
+              serialNumber: machineUnit.serialNumber,
+              qrCodeValue: machineUnit.qrCodeValue,
+              workflowStage: machineUnit.workflowStage,
+              status: machineUnit.workflowStage === 'READY_FOR_DISPATCH' ? MachineUnitStatus.READY : MachineUnitStatus.PENDING,
+              requiredVideoCount: machineUnit.requiredVideoCount,
+              mediaFiles: {
+                create: [
+                  ...Array.from({ length: machineUnit.media.images }, (_, index) => ({
+                    kind: MediaKind.IMAGE,
+                    fileName: `${machineUnit.id}-photo-${index + 1}.jpg`,
+                    storagePath: `seed/${machineUnit.id}/photo-${index + 1}.jpg`,
+                    mimeType: 'image/jpeg'
+                  })),
+                  ...Array.from({ length: machineUnit.media.videos }, (_, index) => ({
+                    kind: MediaKind.VIDEO,
+                    fileName: `${machineUnit.id}-video-${index + 1}.mp4`,
+                    storagePath: `seed/${machineUnit.id}/video-${index + 1}.mp4`,
+                    mimeType: 'video/mp4'
+                  }))
+                ]
+              }
+            }))
+          }
+        }
+      });
+    }
+  });
+}
+
 export class PrismaDispatchRepository implements DispatchRepository {
   private seedPromise: Promise<void> | null = null;
 
@@ -319,51 +368,6 @@ export class PrismaDispatchRepository implements DispatchRepository {
   }
 
   private async seedIfEmpty() {
-    const orderCount = await this.prismaClient.order.count();
-    if (orderCount > 0) return;
-
-    await this.prismaClient.$transaction(async (tx) => {
-      for (const order of defaultSeedOrders) {
-        await tx.order.create({
-          data: {
-            id: order.id,
-            customerName: order.customerName,
-            dueDate: order.dueDate,
-            destination: order.destination,
-            status: order.status,
-            machineUnits: {
-              create: order.machineUnits.map((machineUnit) => ({
-                id: machineUnit.id,
-                externalRef: machineUnit.externalRef,
-                name: machineUnit.name,
-                sku: machineUnit.sku,
-                quantity: machineUnit.quantity,
-                serialNumber: machineUnit.serialNumber,
-                qrCodeValue: machineUnit.qrCodeValue,
-                workflowStage: machineUnit.workflowStage,
-                status: machineUnit.workflowStage === 'READY_FOR_DISPATCH' ? MachineUnitStatus.READY : MachineUnitStatus.PENDING,
-                requiredVideoCount: machineUnit.requiredVideoCount,
-                mediaFiles: {
-                  create: [
-                    ...Array.from({ length: machineUnit.media.images }, (_, index) => ({
-                      kind: MediaKind.IMAGE,
-                      fileName: `${machineUnit.id}-photo-${index + 1}.jpg`,
-                      storagePath: `seed/${machineUnit.id}/photo-${index + 1}.jpg`,
-                      mimeType: 'image/jpeg'
-                    })),
-                    ...Array.from({ length: machineUnit.media.videos }, (_, index) => ({
-                      kind: MediaKind.VIDEO,
-                      fileName: `${machineUnit.id}-video-${index + 1}.mp4`,
-                      storagePath: `seed/${machineUnit.id}/video-${index + 1}.mp4`,
-                      mimeType: 'video/mp4'
-                    }))
-                  ]
-                }
-              }))
-            }
-          }
-        });
-      }
-    });
+    await seedDispatchData(this.prismaClient);
   }
 }

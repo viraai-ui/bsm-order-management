@@ -37,10 +37,35 @@ pnpm --filter @bsm/api dev
 ```bash
 pnpm --filter @bsm/api prisma:generate
 pnpm --filter @bsm/api prisma:migrate:deploy
+pnpm --filter @bsm/api prisma:seed
 pnpm --filter @bsm/api build
+```
+
+## Railway deploy shape
+This repo includes a root `railway.json` so Railway can build from the monorepo root and start the API from `apps/api/dist/index.js`.
+
+Recommended Railway variables:
+```env
+NODE_ENV=production
+PORT=3001
+DATABASE_URL=postgresql://...-pooler.../bsm_dashboard?sslmode=require&pgbouncer=true
+DIRECT_DATABASE_URL=postgresql://.../bsm_dashboard?sslmode=require
+CORS_ORIGIN=https://your-frontend-domain.vercel.app
+JWT_SECRET=replace-with-a-long-random-secret
+AUTH_SEED_EMAIL=admin@bsm.local
+AUTH_SEED_NAME=BSM Admin
+AUTH_SEED_PASSWORD=ChangeMe123!
+```
+
+First live boot:
+```bash
+pnpm --filter @bsm/api prisma:migrate:deploy
+pnpm --filter @bsm/api prisma:seed
+pnpm --filter @bsm/api start
 ```
 
 Notes:
 - The running API should use `DATABASE_URL`.
 - Migration jobs or CI should use `DIRECT_DATABASE_URL`.
 - If your deployment platform runs migrations in a separate step, set both variables there as well.
+- Seed is idempotent, it only inserts the default dispatch data when the orders table is empty.
