@@ -1,4 +1,5 @@
 import { OrderBucket } from '../../components/OrderBucket';
+import { SyncButton } from '../../components/SyncButton';
 import { dashboardSnapshot, groupOrdersByBucket } from '../../lib/apiClient';
 import { signOutDemoUser } from '../auth/auth';
 
@@ -29,7 +30,7 @@ export function DashboardPage() {
           </div>
           <div className="topbar-actions">
             <button className="ghost-button" type="button">Manual refresh</button>
-            <button className="primary-button" type="button">Zoho sync</button>
+            <SyncButton lastSyncedAt="08:10 UTC" pendingJobs={4} />
             <button className="user-chip" type="button" onClick={signOutDemoUser}>TT</button>
           </div>
         </header>

@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom';
 import type { DispatchBucket, DispatchOrder } from '../lib/apiClient';
 
 const toneClassByBucket: Record<DispatchBucket, string> = {
@@ -20,7 +21,7 @@ export function OrderBucket({ bucket, orders }: { bucket: DispatchBucket; orders
 
       <div className="bucket-list">
         {orders.map((order) => (
-          <article className="dispatch-card" key={order.id}>
+          <Link className="dispatch-card card-link" key={order.id} to={`/machine-units/${order.machineUnitId}`}>
             <span className={`status-ribbon ${toneClassByBucket[bucket]}`} />
             <div className="card-row">
               <strong>{order.id}</strong>
@@ -38,7 +39,7 @@ export function OrderBucket({ bucket, orders }: { bucket: DispatchBucket; orders
                 <span>{order.status}</span>
               </div>
             </div>
-          </article>
+          </Link>
         ))}
       </div>
     </section>
