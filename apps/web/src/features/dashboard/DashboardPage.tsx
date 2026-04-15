@@ -1,13 +1,21 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { OrderBucket } from '../../components/OrderBucket';
 import { SyncButton } from '../../components/SyncButton';
 import { fetchDashboardOrders, groupOrdersByBucket, type DispatchOrder } from '../../lib/apiClient';
 import { signOutDemoUser } from '../auth/auth';
 
+type StageFilter = 'all' | 'blocked' | 'ready' | 'dispatched';
+
+function isBlocked(order: DispatchOrder) {
+  return order.status !== 'Dispatch ready' && order.status !== 'Dispatched';
+}
+
 export function DashboardPage() {
   const [orders, setOrders] = useState<DispatchOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [stageFilter, setStageFilter] = useState<StageFilter>('all');
+  const [activeOnly, setActiveOnly] = useState(true);
 
   const loadOrders = useCallback(async () => {
     setLoading(true);
@@ -28,7 +36,32 @@ export function DashboardPage() {
     void loadOrders();
   }, [loadOrders]);
 
-  const grouped = groupOrdersByBucket(orders);
+  const filteredOrders = useMemo(() => {
+    return orders.filter((order) => {
+      if (activeOnly && order.status === 'Dispatched') {
+        return false;
+      }
+
+      if (stageFilter === 'blocked') {
+        return isBlocked(order);
+      }
+
+      if (stageFilter === 'ready') {
+        return order.status === 'Dispatch ready';
+      }
+
+      if (stageFilter === 'dispatched') {
+        return order.status === 'Dispatched';
+      }
+
+      return true;
+    });
+  }, [activeOnly, orders, stageFilter]);
+
+  const grouped = groupOrdersByBucket(filteredOrders);
+  const activeOrders = orders.filter((order) => order.status !== 'Dispatched');
+  const readyOrders = activeOrders.filter((order) => order.status === 'Dispatch ready');
+  const blockedOrders = activeOrders.filter((order) => isBlocked(order));
 
   return (
     <div className="dashboard-shell">
@@ -63,26 +96,64 @@ export function DashboardPage() {
 
         <section className="hero-grid">
           <div className="metric-card live-panel">
-            <span className="meta-label">Dispatch efficiency</span>
-            <strong>98.4%</strong>
-            <p>Three units blocked by missing media proof.</p>
+            <span className="meta-label">Active machine units</span>
+            <strong>{activeOrders.length.toString().padStart(2, '0')}</strong>
+            <p>Dispatched units stay hidden by default so operators can work the live queue.</p>
           </div>
           <div className="metric-card">
-            <span className="meta-label">Pending sync jobs</span>
-            <strong>04</strong>
-            <p>Last successful pull at 08:10 UTC.</p>
+            <span className="meta-label">Dispatch ready</span>
+            <strong>{readyOrders.length.toString().padStart(2, '0')}</strong>
+            <p>Units ready to hand over right now.</p>
           </div>
           <div className="metric-card warning-panel">
-            <span className="meta-label">Urgent queue</span>
-            <strong>{grouped.Urgent.length.toString().padStart(2, '0')}</strong>
+            <span className="meta-label">Blocked units</span>
+            <strong>{blockedOrders.length.toString().padStart(2, '0')}</strong>
             <p>
               {loading
-                ? 'Loading dispatch buckets...'
+                ? 'Loading dispatch blockers...'
                 : error
                   ? 'Dispatch data unavailable. Check the API connection and retry.'
-                  : 'Live bucket counts from the real API.'}
+                  : 'Media, serial, or QR gaps still need operator attention.'}
             </p>
           </div>
+        </section>
+
+        <section className="detail-panel filter-panel">
+          <div className="detail-panel-header">
+            <div>
+              <p className="eyebrow">Queue filters</p>
+              <h3>Work the active dispatch lane</h3>
+            </div>
+            <button
+              className={activeOnly ? 'pill tone-live filter-toggle active' : 'pill tone-muted filter-toggle'}
+              type="button"
+              onClick={() => setActiveOnly((current) => !current)}
+            >
+              {activeOnly ? 'Active only' : 'Show dispatched too'}
+            </button>
+          </div>
+
+          <div className="filter-row" role="group" aria-label="Stage filters">
+            {[
+              ['all', 'All'],
+              ['blocked', 'Blocked'],
+              ['ready', 'Ready'],
+              ['dispatched', 'Dispatched'],
+            ].map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                className={stageFilter === value ? 'filter-chip active' : 'filter-chip'}
+                onClick={() => setStageFilter(value as StageFilter)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          <p className="muted-copy">
+            Showing {filteredOrders.length} machine unit{filteredOrders.length === 1 ? '' : 's'} across all dispatch buckets.
+          </p>
         </section>
 
         {error ? (
@@ -103,11 +174,11 @@ export function DashboardPage() {
           <OrderBucket bucket="Later" orders={grouped.Later} />
         </section>
 
-        {!loading && !error && orders.length === 0 ? (
+        {!loading && !error && filteredOrders.length === 0 ? (
           <section className="detail-panel">
             <p className="eyebrow">No dispatch work</p>
-            <h3>No machine units are queued right now</h3>
-            <p className="muted-copy">Once orders land in the API, they will appear in the dispatch buckets above.</p>
+            <h3>No machine units match the current filters</h3>
+            <p className="muted-copy">Try a different stage filter or include dispatched units again.</p>
           </section>
         ) : null}
       </main>
@@ -116,9 +187,9 @@ export function DashboardPage() {
         <section className="rail-panel">
           <p className="eyebrow">Alerts</p>
           <ul>
-            <li>2 orders missing mandatory dispatch video</li>
-            <li>1 QR serial batch awaiting approval</li>
-            <li>Zoho token scope upgrade still pending</li>
+            <li>{blockedOrders.length} active units still blocked before dispatch</li>
+            <li>{readyOrders.length} units are ready for handover</li>
+            <li>{activeOnly ? 'Dispatched units are hidden from the main queue' : 'Historical dispatched units are visible right now'}</li>
           </ul>
         </section>
         <section className="rail-panel">

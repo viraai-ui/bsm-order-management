@@ -3,13 +3,13 @@ import { Link, useParams } from 'react-router-dom';
 import { MachineStatusPanel } from '../components/MachineStatusPanel';
 import { MediaUploadPanel } from '../components/MediaUploadPanel';
 import {
-  addMediaToMachineUnit,
   deleteMedia,
   fetchMachineUnitById,
   generateQrForMachineUnit,
   generateSerialForMachineUnit,
-  markMachineUnitReadyForDispatch,
+  markMachineUnitDispatched,
   updateMachineWorkflowStage,
+  uploadMediaToMachineUnit,
   type MachineUnitDetail,
 } from '../lib/apiClient';
 
@@ -19,7 +19,8 @@ export function MachineUnitPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [activeAction, setActiveAction] = useState<'serial' | 'qr' | 'ready' | 'media' | 'stage' | null>(null);
+  const [dispatchNotes, setDispatchNotes] = useState('');
+  const [activeAction, setActiveAction] = useState<'serial' | 'qr' | 'dispatch' | 'media' | 'stage' | null>(null);
 
   const loadMachine = useCallback(async () => {
     setLoading(true);
@@ -28,6 +29,7 @@ export function MachineUnitPage() {
     try {
       const nextMachine = await fetchMachineUnitById(id);
       setMachine(nextMachine);
+      setDispatchNotes(nextMachine.dispatchNotes ?? '');
     } catch (loadError) {
       setMachine(null);
       setError(loadError instanceof Error ? loadError.message : 'Failed to load machine unit');
@@ -40,13 +42,16 @@ export function MachineUnitPage() {
     void loadMachine();
   }, [loadMachine]);
 
-  async function runAction(action: 'serial' | 'qr' | 'ready' | 'media' | 'stage', request: () => Promise<MachineUnitDetail>) {
+  async function runAction(action: 'serial' | 'qr' | 'dispatch' | 'media' | 'stage', request: () => Promise<MachineUnitDetail>) {
     setActionError(null);
     setActiveAction(action);
 
     try {
       const updated = await request();
       setMachine(updated);
+      if (updated.dispatchNotes != null) {
+        setDispatchNotes(updated.dispatchNotes);
+      }
     } catch (requestError) {
       setActionError(requestError instanceof Error ? requestError.message : 'Unable to update machine unit');
     } finally {
@@ -62,16 +67,16 @@ export function MachineUnitPage() {
     void runAction('qr', () => generateQrForMachineUnit(id));
   }
 
-  function handleMarkReady() {
-    void runAction('ready', () => markMachineUnitReadyForDispatch(id));
+  function handleMarkDispatched() {
+    void runAction('dispatch', () => markMachineUnitDispatched(id, dispatchNotes.trim() || undefined));
   }
 
   function handleMarkMediaUploaded() {
     void runAction('stage', () => updateMachineWorkflowStage(id, 'MEDIA_UPLOADED'));
   }
 
-  async function handleAddMedia(input: { kind: 'IMAGE' | 'VIDEO' | 'DOCUMENT'; fileName: string; mimeType?: string }) {
-    await runAction('media', () => addMediaToMachineUnit(id, input));
+  async function handleAddMedia(input: { kind: 'IMAGE' | 'VIDEO' | 'DOCUMENT'; file: File }) {
+    await runAction('media', () => uploadMediaToMachineUnit(id, input));
   }
 
   async function handleDeleteMedia(mediaId: string) {
@@ -106,6 +111,8 @@ export function MachineUnitPage() {
     );
   }
 
+  const dispatched = machine.workflowStage === 'Dispatched';
+
   return (
     <main className="page-shell">
       <div className="page-header">
@@ -125,6 +132,8 @@ export function MachineUnitPage() {
             <div><span className="meta-label">Destination</span><strong>{machine.destination}</strong></div>
             <div><span className="meta-label">Schedule</span><strong>{machine.scheduledFor}</strong></div>
             <div><span className="meta-label">Serial number</span><strong>{machine.serialNumber ?? 'Pending'}</strong></div>
+            <div><span className="meta-label">Dispatch status</span><strong>{machine.workflowStage}</strong></div>
+            <div><span className="meta-label">Dispatched at</span><strong>{machine.dispatchedAt ? new Date(machine.dispatchedAt).toLocaleString('en-IN', { timeZone: 'UTC' }) : 'Pending'}</strong></div>
           </div>
         </div>
 
@@ -142,7 +151,7 @@ export function MachineUnitPage() {
           videos={machine.videos}
           requiredVideos={machine.requiredVideos}
           mediaFiles={machine.mediaFiles}
-          disabled={activeAction !== null}
+          disabled={activeAction !== null || dispatched}
           onAddMedia={handleAddMedia}
           onDeleteMedia={handleDeleteMedia}
         />
@@ -154,23 +163,37 @@ export function MachineUnitPage() {
               <h3>Dispatch workflow</h3>
             </div>
           </div>
-          <div className="action-grid">
-            <button className="ghost-button" type="button" onClick={handleGenerateSerial} disabled={activeAction !== null}>
+          <div className="action-grid action-grid-wide">
+            <button className="ghost-button" type="button" onClick={handleGenerateSerial} disabled={activeAction !== null || dispatched}>
               {activeAction === 'serial' ? 'Generating serial…' : 'Generate serial'}
             </button>
-            <button className="ghost-button" type="button" onClick={handleGenerateQr} disabled={activeAction !== null}>
+            <button className="ghost-button" type="button" onClick={handleGenerateQr} disabled={activeAction !== null || dispatched}>
               {activeAction === 'qr' ? 'Generating QR…' : 'Generate QR'}
             </button>
-            <button className="ghost-button" type="button" onClick={handleMarkMediaUploaded} disabled={activeAction !== null}>
-              {activeAction === 'stage' ? 'Updating stage…' : 'Mark media uploaded'}
-            </button>
-            <button className="primary-button" type="button" onClick={handleMarkReady} disabled={activeAction !== null}>
-              {activeAction === 'ready' ? 'Marking ready…' : 'Mark ready for dispatch'}
+            <button className="ghost-button" type="button" onClick={handleMarkMediaUploaded} disabled={activeAction !== null || dispatched}>
+              {activeAction === 'stage' ? 'Updating stage…' : 'Refresh stage from media'}
             </button>
           </div>
+
+          <label className="stacked-field">
+            <span className="meta-label">Dispatch notes</span>
+            <textarea
+              aria-label="Dispatch notes"
+              value={dispatchNotes}
+              onChange={(event) => setDispatchNotes(event.target.value)}
+              placeholder="Carrier, dock, or handover notes"
+              disabled={activeAction !== null || dispatched}
+              rows={4}
+            />
+          </label>
+
+          <button className="primary-button" type="button" onClick={handleMarkDispatched} disabled={activeAction !== null || dispatched}>
+            {dispatched ? 'Dispatch completed' : activeAction === 'dispatch' ? 'Marking dispatched…' : 'Mark dispatched'}
+          </button>
+
           {actionError ? <p className="muted-copy" role="alert">{actionError}</p> : null}
           <p className="muted-copy">
-            Ready for dispatch stays blocked until serial, QR, and required media all exist.
+            Dispatch completion stays blocked until serial, QR, and required media all exist.
           </p>
         </section>
       </section>

@@ -1,5 +1,7 @@
-import { useState, type FormEvent } from 'react';
+import { useState, type ChangeEvent, type FormEvent } from 'react';
 import type { MediaRecord } from '../lib/apiClient';
+
+type MediaKind = 'IMAGE' | 'VIDEO' | 'DOCUMENT';
 
 type MediaUploadPanelProps = {
   photos: number;
@@ -7,9 +9,17 @@ type MediaUploadPanelProps = {
   requiredVideos: number;
   mediaFiles: MediaRecord[];
   disabled?: boolean;
-  onAddMedia: (input: { kind: 'IMAGE' | 'VIDEO' | 'DOCUMENT'; fileName: string; mimeType?: string }) => Promise<void>;
+  onAddMedia: (input: { kind: MediaKind; file: File }) => Promise<void>;
   onDeleteMedia: (mediaId: string) => Promise<void>;
 };
+
+const FILE_ACCEPT = 'image/*,video/*,.pdf,.doc,.docx,.txt,.csv,.xlsx,.xls,application/pdf';
+
+function inferKind(file: File): MediaKind {
+  if (file.type.startsWith('image/')) return 'IMAGE';
+  if (file.type.startsWith('video/')) return 'VIDEO';
+  return 'DOCUMENT';
+}
 
 export function MediaUploadPanel({
   photos,
@@ -20,17 +30,25 @@ export function MediaUploadPanel({
   onAddMedia,
   onDeleteMedia,
 }: MediaUploadPanelProps) {
-  const [kind, setKind] = useState<'IMAGE' | 'VIDEO' | 'DOCUMENT'>('IMAGE');
-  const [fileName, setFileName] = useState('');
+  const [kind, setKind] = useState<MediaKind>('IMAGE');
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const missingVideos = Math.max(requiredVideos - videos, 0);
 
+  function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0] ?? null;
+    setSelectedFile(file);
+    if (file) {
+      setKind(inferKind(file));
+    }
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (!fileName.trim()) {
-      setError('File name is required');
+    if (!selectedFile) {
+      setError('Choose a file before uploading');
       return;
     }
 
@@ -38,14 +56,11 @@ export function MediaUploadPanel({
     setError(null);
 
     try {
-      await onAddMedia({
-        kind,
-        fileName: fileName.trim(),
-        mimeType: kind === 'VIDEO' ? 'video/mp4' : kind === 'IMAGE' ? 'image/jpeg' : 'application/octet-stream',
-      });
-      setFileName('');
+      await onAddMedia({ kind, file: selectedFile });
+      setSelectedFile(null);
+      event.currentTarget.reset();
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : 'Unable to add media');
+      setError(requestError instanceof Error ? requestError.message : 'Unable to upload media');
     } finally {
       setBusy(false);
     }
@@ -89,34 +104,39 @@ export function MediaUploadPanel({
       </div>
 
       <form className="media-form" onSubmit={handleSubmit}>
-        <label>
-          <span className="meta-label">Media type</span>
-          <select aria-label="Media type" value={kind} onChange={(event) => setKind(event.target.value as 'IMAGE' | 'VIDEO' | 'DOCUMENT')} disabled={disabled || busy}>
-            <option value="IMAGE">Image</option>
-            <option value="VIDEO">Video</option>
-            <option value="DOCUMENT">Document</option>
-          </select>
-        </label>
-        <label>
-          <span className="meta-label">File name</span>
-          <input aria-label="File name" value={fileName} onChange={(event) => setFileName(event.target.value)} placeholder="packing-proof.jpg" disabled={disabled || busy} />
-        </label>
-        <button className="ghost-button" type="submit" disabled={disabled || busy}>
-          {busy ? 'Saving…' : 'Add media record'}
-        </button>
+        <div className="media-form-grid">
+          <label>
+            <span className="meta-label">Media type</span>
+            <select aria-label="Media type" value={kind} onChange={(event) => setKind(event.target.value as MediaKind)} disabled={disabled || busy}>
+              <option value="IMAGE">Image</option>
+              <option value="VIDEO">Video</option>
+              <option value="DOCUMENT">Document</option>
+            </select>
+          </label>
+          <label>
+            <span className="meta-label">Choose file</span>
+            <input aria-label="Choose file" type="file" accept={FILE_ACCEPT} onChange={handleFileChange} disabled={disabled || busy} />
+          </label>
+        </div>
+        <div className="upload-actions">
+          <p className="muted-copy upload-file-name">{selectedFile ? selectedFile.name : 'No file selected yet.'}</p>
+          <button className="ghost-button" type="submit" disabled={disabled || busy}>
+            {busy ? 'Uploading…' : 'Upload media'}
+          </button>
+        </div>
       </form>
 
       {error ? <p className="muted-copy" role="alert">{error}</p> : null}
 
       <div className="media-list">
         {mediaFiles.length === 0 ? (
-          <p className="muted-copy">No media records yet.</p>
+          <p className="muted-copy">No uploaded proof yet.</p>
         ) : (
           mediaFiles.map((file) => (
             <div className="check-row" key={file.id}>
               <div>
                 <span>{file.fileName}</span>
-                <p className="muted-copy">{file.kind}</p>
+                <p className="muted-copy">{file.kind}{file.mimeType ? ` • ${file.mimeType}` : ''}</p>
               </div>
               <button className="ghost-button" type="button" onClick={() => void handleDelete(file.id)} disabled={disabled || busy} aria-label={`Remove ${file.fileName}`}>
                 Remove
@@ -127,7 +147,7 @@ export function MediaUploadPanel({
       </div>
 
       <p className="muted-copy">
-        Minimum rule: multiple photos plus {requiredVideos} testing video{requiredVideos > 1 ? 's' : ''} before dispatch.
+        Minimum rule: at least one photo plus {requiredVideos} testing video{requiredVideos > 1 ? 's' : ''} before dispatch can complete.
       </p>
     </section>
   );

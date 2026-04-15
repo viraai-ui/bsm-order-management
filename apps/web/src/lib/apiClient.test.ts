@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   ApiError,
-  addMediaToMachineUnit,
   deleteMedia,
   fetchDashboardOrders,
   fetchMachineUnitById,
@@ -9,6 +8,7 @@ import {
   mapMachineUnitDetail,
   mapOrderToDispatchOrder,
   updateMachineWorkflowStage,
+  uploadMediaToMachineUnit,
 } from './apiClient';
 
 afterEach(() => {
@@ -83,35 +83,39 @@ describe('apiClient', () => {
   });
 
   it('maps machine unit detail from the API response', async () => {
+    const payload = {
+      id: 'MU-24018-1',
+      orderId: 'order-1',
+      orderNumber: 'BSM-24018',
+      customerName: 'Anand Cooling Towers',
+      destination: 'Delhi NCR',
+      scheduledFor: '2026-04-13T08:30:00Z',
+      productName: 'Axial Fan Unit',
+      serialNumber: '262700014',
+      qrCodeValue: 'qr-1',
+      imageCount: 4,
+      videoCount: 2,
+      requiredVideoCount: 2,
+      workflowStage: 'READY_FOR_DISPATCH' as const,
+      dispatchedAt: null,
+      dispatchNotes: null,
+      mediaFiles: [
+        {
+          id: 'media-1',
+          machineUnitId: 'MU-24018-1',
+          kind: 'IMAGE' as const,
+          fileName: 'proof-1.jpg',
+          storagePath: 'seed/proof-1.jpg',
+          mimeType: 'image/jpeg',
+          createdAt: '2026-04-13T08:30:00Z',
+        },
+      ],
+    };
+
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({
-        data: {
-          id: 'MU-24018-1',
-          orderId: 'order-1',
-          orderNumber: 'BSM-24018',
-          customerName: 'Anand Cooling Towers',
-          destination: 'Delhi NCR',
-          scheduledFor: '2026-04-13T08:30:00Z',
-          productName: 'Axial Fan Unit',
-          serialNumber: '262700014',
-          qrCodeValue: 'qr-1',
-          imageCount: 4,
-          videoCount: 2,
-          requiredVideoCount: 2,
-          workflowStage: 'READY_FOR_DISPATCH',
-          mediaFiles: [
-            {
-              id: 'media-1',
-              machineUnitId: 'MU-24018-1',
-              kind: 'IMAGE',
-              fileName: 'proof-1.jpg',
-              storagePath: 'seed/proof-1.jpg',
-              mimeType: 'image/jpeg',
-              createdAt: '2026-04-13T08:30:00Z',
-            },
-          ],
-        },
+        data: payload,
         workflow: {
           dispatchReady: true,
           nextStage: 'READY_FOR_DISPATCH',
@@ -120,43 +124,15 @@ describe('apiClient', () => {
     }));
 
     await expect(fetchMachineUnitById('MU-24018-1')).resolves.toEqual(
-      mapMachineUnitDetail(
-        {
-          id: 'MU-24018-1',
-          orderId: 'order-1',
-          orderNumber: 'BSM-24018',
-          customerName: 'Anand Cooling Towers',
-          destination: 'Delhi NCR',
-          scheduledFor: '2026-04-13T08:30:00Z',
-          productName: 'Axial Fan Unit',
-          serialNumber: '262700014',
-          qrCodeValue: 'qr-1',
-          imageCount: 4,
-          videoCount: 2,
-          requiredVideoCount: 2,
-          workflowStage: 'READY_FOR_DISPATCH',
-          mediaFiles: [
-            {
-              id: 'media-1',
-              machineUnitId: 'MU-24018-1',
-              kind: 'IMAGE',
-              fileName: 'proof-1.jpg',
-              storagePath: 'seed/proof-1.jpg',
-              mimeType: 'image/jpeg',
-              createdAt: '2026-04-13T08:30:00Z',
-            },
-          ],
-        },
-        {
-          dispatchReady: true,
-          nextStage: 'READY_FOR_DISPATCH',
-        },
-      ),
+      mapMachineUnitDetail(payload, {
+        dispatchReady: true,
+        nextStage: 'READY_FOR_DISPATCH',
+      }),
     );
   });
 
-  it('adds a media record to a machine unit via the API', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+  it('uploads a media record to a machine unit via multipart form data', async () => {
+    const fetchSpy = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({
         data: {
@@ -173,6 +149,8 @@ describe('apiClient', () => {
           videoCount: 2,
           requiredVideoCount: 2,
           workflowStage: 'READY_FOR_DISPATCH',
+          dispatchedAt: null,
+          dispatchNotes: null,
           mediaFiles: [
             {
               id: 'media-2',
@@ -190,16 +168,19 @@ describe('apiClient', () => {
           nextStage: 'READY_FOR_DISPATCH',
         },
       }),
-    }));
+    });
 
-    await expect(addMediaToMachineUnit('MU-24018-1', {
+    vi.stubGlobal('fetch', fetchSpy);
+
+    await expect(uploadMediaToMachineUnit('MU-24018-1', {
       kind: 'IMAGE',
-      fileName: 'fresh-proof.jpg',
-      mimeType: 'image/jpeg',
+      file: new File(['proof'], 'fresh-proof.jpg', { type: 'image/jpeg' }),
     })).resolves.toEqual(expect.objectContaining({
       photos: 5,
       mediaFiles: [expect.objectContaining({ fileName: 'fresh-proof.jpg', kind: 'IMAGE' })],
     }));
+
+    expect(fetchSpy.mock.calls[0]?.[1]?.body).toBeInstanceOf(FormData);
   });
 
   it('deletes a media record via the API', async () => {
@@ -220,6 +201,8 @@ describe('apiClient', () => {
           videoCount: 2,
           requiredVideoCount: 2,
           workflowStage: 'READY_FOR_DISPATCH',
+          dispatchedAt: null,
+          dispatchNotes: null,
           mediaFiles: [],
         },
         workflow: {
@@ -253,6 +236,8 @@ describe('apiClient', () => {
           videoCount: 2,
           requiredVideoCount: 2,
           workflowStage: 'MEDIA_UPLOADED',
+          dispatchedAt: null,
+          dispatchNotes: null,
           mediaFiles: [],
         },
         workflow: {

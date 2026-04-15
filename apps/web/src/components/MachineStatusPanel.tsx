@@ -19,6 +19,9 @@ export function MachineStatusPanel({ workflowStage, serialNumber, qrReady, media
   };
 
   const dispatchReady = state.serial && state.qr && state.media;
+  const dispatched = workflowStage === 'Dispatched';
+  const badgeClass = dispatched ? 'pill tone-muted' : dispatchReady ? 'pill tone-live' : 'pill tone-urgent';
+  const badgeLabel = dispatched ? 'Dispatched' : dispatchReady ? 'Dispatch ready' : 'Blocked';
 
   return (
     <section className="detail-panel">
@@ -27,9 +30,7 @@ export function MachineStatusPanel({ workflowStage, serialNumber, qrReady, media
           <p className="eyebrow">Workflow readiness</p>
           <h3>{workflowStage}</h3>
         </div>
-        <span className={dispatchReady ? 'pill tone-live' : 'pill tone-urgent'}>
-          {dispatchReady ? 'Dispatch ready' : 'Blocked'}
-        </span>
+        <span className={badgeClass}>{badgeLabel}</span>
       </div>
 
       <div className="check-list">

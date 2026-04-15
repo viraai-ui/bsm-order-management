@@ -7,7 +7,7 @@ export type DispatchOrder = {
   destination: string;
   scheduledFor: string;
   bucket: DispatchBucket;
-  status: 'Awaiting media' | 'Ready to pack' | 'Testing complete' | 'Dispatch ready';
+  status: 'Awaiting media' | 'Ready to pack' | 'Testing complete' | 'Dispatch ready' | 'Dispatched';
   priority: 'High' | 'Medium' | 'Normal';
 };
 
@@ -30,11 +30,13 @@ export type MachineUnitDetail = {
   serialNumber: string | null;
   qrReady: boolean;
   mediaComplete: boolean;
-  workflowStage: 'Packing / Testing' | 'Media Uploaded' | 'Ready for Dispatch';
+  workflowStage: 'Packing / Testing' | 'Media Uploaded' | 'Ready for Dispatch' | 'Dispatched';
   photos: number;
   videos: number;
   requiredVideos: number;
   mediaFiles: MediaRecord[];
+  dispatchedAt?: string | null;
+  dispatchNotes?: string | null;
 };
 
 type OrdersApiItem = {
@@ -65,7 +67,9 @@ type MachineUnitApiItem = {
   imageCount: number;
   videoCount: number;
   requiredVideoCount: number;
-  workflowStage: 'PACKING_TESTING' | 'MEDIA_UPLOADED' | 'READY_FOR_DISPATCH';
+  workflowStage: 'PACKING_TESTING' | 'MEDIA_UPLOADED' | 'READY_FOR_DISPATCH' | 'DISPATCHED';
+  dispatchedAt: string | null;
+  dispatchNotes: string | null;
   mediaFiles: {
     id: string;
     machineUnitId: string;
@@ -79,7 +83,7 @@ type MachineUnitApiItem = {
 
 type WorkflowApiItem = {
   dispatchReady: boolean;
-  nextStage: 'PACKING_TESTING' | 'MEDIA_UPLOADED' | 'READY_FOR_DISPATCH';
+  nextStage: 'PACKING_TESTING' | 'MEDIA_UPLOADED' | 'READY_FOR_DISPATCH' | 'DISPATCHED';
 };
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:3001';
@@ -137,6 +141,7 @@ function mapScheduleToBucket(value: string | null | undefined): DispatchBucket {
 }
 
 function mapWorkflowStage(nextStage: WorkflowApiItem['nextStage']): MachineUnitDetail['workflowStage'] {
+  if (nextStage === 'DISPATCHED') return 'Dispatched';
   if (nextStage === 'READY_FOR_DISPATCH') return 'Ready for Dispatch';
   if (nextStage === 'MEDIA_UPLOADED') return 'Media Uploaded';
   return 'Packing / Testing';
@@ -176,6 +181,8 @@ export function mapMachineUnitDetail(
     photos: machine.imageCount,
     videos: machine.videoCount,
     requiredVideos: machine.requiredVideoCount,
+    dispatchedAt: machine.dispatchedAt,
+    dispatchNotes: machine.dispatchNotes,
     mediaFiles: machine.mediaFiles.map((file) => ({
       id: file.id,
       kind: file.kind,
@@ -188,8 +195,9 @@ export function mapMachineUnitDetail(
 
 async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
+  const isFormData = typeof FormData !== 'undefined' && init?.body instanceof FormData;
 
-  if (!headers.has('Content-Type')) {
+  if (!isFormData && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json');
   }
 
@@ -243,7 +251,7 @@ export async function generateQrForMachineUnit(id: string): Promise<MachineUnitD
 
 export async function updateMachineWorkflowStage(
   id: string,
-  workflowStage: 'PACKING_TESTING' | 'MEDIA_UPLOADED' | 'READY_FOR_DISPATCH',
+  workflowStage: 'PACKING_TESTING' | 'MEDIA_UPLOADED' | 'READY_FOR_DISPATCH' | 'DISPATCHED',
 ): Promise<MachineUnitDetail> {
   const payload = await fetchJson<{ data: MachineUnitApiItem; workflow: WorkflowApiItem }>(`/machine-units/${id}`, {
     method: 'PATCH',
@@ -252,17 +260,28 @@ export async function updateMachineWorkflowStage(
   return mapMachineUnitDetail(payload.data, payload.workflow);
 }
 
-export async function markMachineUnitReadyForDispatch(id: string): Promise<MachineUnitDetail> {
-  return updateMachineWorkflowStage(id, 'READY_FOR_DISPATCH');
+export async function markMachineUnitDispatched(
+  id: string,
+  dispatchNotes?: string,
+): Promise<MachineUnitDetail> {
+  const payload = await fetchJson<{ data: MachineUnitApiItem; workflow: WorkflowApiItem }>(`/machine-units/${id}/dispatch`, {
+    method: 'POST',
+    body: JSON.stringify(dispatchNotes ? { dispatchNotes } : {}),
+  });
+  return mapMachineUnitDetail(payload.data, payload.workflow);
 }
 
-export async function addMediaToMachineUnit(
+export async function uploadMediaToMachineUnit(
   id: string,
-  input: { kind: 'IMAGE' | 'VIDEO' | 'DOCUMENT'; fileName: string; mimeType?: string },
+  input: { kind: 'IMAGE' | 'VIDEO' | 'DOCUMENT'; file: File },
 ): Promise<MachineUnitDetail> {
-  const payload = await fetchJson<{ data: MachineUnitApiItem; workflow: WorkflowApiItem }>(`/machine-units/${id}/media`, {
+  const formData = new FormData();
+  formData.set('kind', input.kind);
+  formData.set('file', input.file);
+
+  const payload = await fetchJson<{ data: MachineUnitApiItem; workflow: WorkflowApiItem }>(`/machine-units/${id}/media/upload`, {
     method: 'POST',
-    body: JSON.stringify(input),
+    body: formData,
   });
   return mapMachineUnitDetail(payload.data, payload.workflow);
 }

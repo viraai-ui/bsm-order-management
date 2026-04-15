@@ -78,3 +78,10 @@ Notes:
 - Seed is idempotent, it only inserts the default dispatch data when the orders table is empty.
 - Zoho sync starts with the API process and runs on the configured interval.
 - Manual sync is available via `POST /orders/sync`.
+
+## Media uploads and dispatch completion
+- Upload machine-unit proof with `POST /machine-units/:id/media/upload` using `multipart/form-data`.
+- Send `kind` (`IMAGE`, `VIDEO`, or `DOCUMENT`) plus the uploaded `file` field.
+- Complete handoff with `POST /machine-units/:id/dispatch` and optional `dispatchNotes` JSON.
+- Dispatch completion is blocked until the machine unit has a serial number, QR code, at least one image, and the required testing videos.
+- Local development stores uploads with the configured local media storage provider. Production can switch to the S3-compatible provider via the media storage env vars in `.env.example`.
