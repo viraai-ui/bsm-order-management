@@ -1,7 +1,31 @@
-import { MachineUnitStatus, MediaKind, OrderStatus, Prisma, type PrismaClient } from '@prisma/client';
-import type { MachineUnitApiRecord, OrderApiRecord, WorkflowStage } from '../lib/dispatch.js';
+import {
+  MachineUnitStatus,
+  MediaKind,
+  OrderStatus,
+  Prisma,
+  type PrismaClient,
+  type TeamAssignment,
+} from '@prisma/client';
+import type { MachineUnitApiRecord, WorkflowStage } from '../lib/dispatch.js';
+import {
+  getNextTeamAssignment,
+  mapOrderDetailRecord,
+  mapOrderListRecord,
+  type DispatchOrdersByTeamApiRecord,
+  type OrderApiRecord,
+  type OrderDetailApiRecord,
+} from '../lib/orders.js';
 import type { NormalizedOrder } from '../lib/zoho.js';
 import { getFinancialYearCode, nextSerialNumber } from '../services/serials.js';
+
+export type ListOrdersInput = {
+  teamAssignment?: TeamAssignment;
+};
+
+export type UpdateOrderTeamAssignmentInput = {
+  id: string;
+  teamAssignment: TeamAssignment;
+};
 
 export type UpdateMachineUnitStageInput = {
   id: string;
@@ -30,7 +54,11 @@ export type ReconcileZohoOrderResult = {
 };
 
 export interface DispatchRepository {
-  listOrders(): Promise<OrderApiRecord[]>;
+  listOrders(input?: ListOrdersInput): Promise<OrderApiRecord[]>;
+  listDispatchOrders(): Promise<DispatchOrdersByTeamApiRecord>;
+  getOrderById(id: string): Promise<OrderDetailApiRecord | null>;
+  updateOrderTeamAssignment(input: UpdateOrderTeamAssignmentInput): Promise<OrderDetailApiRecord | null>;
+  generateOrderQrs(id: string): Promise<OrderDetailApiRecord | null>;
   reconcileZohoOrder(input: NormalizedOrder): Promise<ReconcileZohoOrderResult>;
   getMachineUnitById(id: string): Promise<MachineUnitApiRecord | null>;
   generateSerialNumber(id: string, date?: Date): Promise<MachineUnitApiRecord | null>;
@@ -49,9 +77,30 @@ type PrismaMachineUnitPayload = Prisma.MachineUnitGetPayload<{
   };
 }>;
 
-type PrismaOrderPayload = Prisma.OrderGetPayload<{
+type PrismaOrderListPayload = Prisma.OrderGetPayload<{
   include: {
-    machineUnits: true;
+    machineUnits: {
+      include: {
+        mediaFiles: {
+          select: {
+            kind: true;
+          };
+        };
+      };
+    };
+  };
+}>;
+
+type PrismaOrderDetailPayload = Prisma.OrderGetPayload<{
+  include: {
+    machineUnits: {
+      include: {
+        mediaFiles: true;
+      };
+      orderBy: {
+        id: 'asc';
+      };
+    };
   };
 }>;
 
@@ -62,6 +111,8 @@ export const defaultSeedOrders = [
     dueDate: new Date('2026-04-13T08:30:00Z'),
     destination: 'Delhi NCR',
     status: OrderStatus.PENDING,
+    teamAssignment: 'TEAM_A' as TeamAssignment,
+    assignedAt: new Date('2026-04-13T07:00:00Z'),
     machineUnits: [
       {
         id: 'MU-24018-1',
@@ -83,6 +134,8 @@ export const defaultSeedOrders = [
     dueDate: new Date('2026-04-13T13:00:00Z'),
     destination: 'Jaipur',
     status: OrderStatus.IN_PRODUCTION,
+    teamAssignment: 'TEAM_B' as TeamAssignment,
+    assignedAt: new Date('2026-04-13T07:05:00Z'),
     machineUnits: [
       {
         id: 'MU-24021-1',
@@ -104,6 +157,8 @@ export const defaultSeedOrders = [
     dueDate: new Date('2026-04-14T10:00:00Z'),
     destination: 'Lucknow',
     status: OrderStatus.PENDING,
+    teamAssignment: 'TEAM_A' as TeamAssignment,
+    assignedAt: new Date('2026-04-13T07:10:00Z'),
     machineUnits: [
       {
         id: 'MU-24025-1',
@@ -125,6 +180,8 @@ export const defaultSeedOrders = [
     dueDate: new Date('2026-04-16T09:00:00Z'),
     destination: 'Chandigarh',
     status: OrderStatus.READY_FOR_DISPATCH,
+    teamAssignment: 'TEAM_B' as TeamAssignment,
+    assignedAt: new Date('2026-04-13T07:15:00Z'),
     machineUnits: [
       {
         id: 'MU-24029-1',
@@ -141,57 +198,6 @@ export const defaultSeedOrders = [
     ]
   }
 ] as const;
-
-function toWorkflowStage(status: OrderStatus, machineWorkflowStage: WorkflowStage): string {
-  if (machineWorkflowStage === 'DISPATCHED') {
-    return 'Dispatched';
-  }
-
-  if (machineWorkflowStage === 'READY_FOR_DISPATCH' || status === OrderStatus.READY_FOR_DISPATCH) {
-    return 'Dispatch ready';
-  }
-
-  if (machineWorkflowStage === 'MEDIA_UPLOADED') {
-    return 'Testing complete';
-  }
-
-  return 'Awaiting media';
-}
-
-function mapOrder(order: PrismaOrderPayload): OrderApiRecord {
-  const aggregatedMachineUnits = Array.from(
-    order.machineUnits
-      .reduce((groups, machineUnit) => {
-        const key = machineUnit.externalRef ?? machineUnit.id;
-        const existing = groups.get(key);
-
-        if (existing) {
-          existing.quantity += machineUnit.quantity;
-          return groups;
-        }
-
-        groups.set(key, {
-          id: machineUnit.id,
-          zohoLineItemId: key,
-          productName: machineUnit.name,
-          quantity: machineUnit.quantity,
-          sku: machineUnit.sku
-        });
-        return groups;
-      }, new Map<string, OrderApiRecord['machineUnits'][number]>())
-      .values()
-  );
-
-  return {
-    id: order.id,
-    salesOrderNumber: order.id,
-    customerName: order.customerName,
-    deliveryDate: order.dueDate?.toISOString() ?? null,
-    destination: order.destination,
-    status: toWorkflowStage(order.status, (order.machineUnits[0]?.workflowStage as WorkflowStage | undefined) ?? 'PACKING_TESTING'),
-    machineUnits: aggregatedMachineUnits
-  };
-}
 
 function mapMachineUnit(machineUnit: PrismaMachineUnitPayload): MachineUnitApiRecord {
   const imageCount = machineUnit.mediaFiles.filter((file) => file.kind === MediaKind.IMAGE).length;
@@ -249,7 +255,7 @@ function mapZohoStatusToOrderStatus(status: string): OrderStatus {
   }
 }
 
-function machineUnitRetentionScore(machineUnit: PrismaOrderPayload['machineUnits'][number]) {
+function machineUnitRetentionScore(machineUnit: PrismaOrderListPayload['machineUnits'][number]) {
   const workflowScore =
     machineUnit.workflowStage === 'DISPATCHED'
       ? 4
@@ -272,7 +278,7 @@ function machineUnitRetentionScore(machineUnit: PrismaOrderPayload['machineUnits
   return workflowScore * 100 + statusScore * 10 + (machineUnit.serialNumber ? 1 : 0);
 }
 
-function sortByRetentionPriority(machineUnits: PrismaOrderPayload['machineUnits']) {
+function sortByRetentionPriority(machineUnits: PrismaOrderListPayload['machineUnits']) {
   return [...machineUnits].sort((left, right) => {
     const scoreDifference = machineUnitRetentionScore(right) - machineUnitRetentionScore(left);
     if (scoreDifference !== 0) return scoreDifference;
@@ -296,6 +302,8 @@ export async function seedDispatchData(prismaClient: PrismaClient) {
         dueDate: order.dueDate,
         destination: order.destination,
         status: order.status,
+        teamAssignment: order.teamAssignment,
+        assignedAt: order.assignedAt,
         machineUnits: {
           create: order.machineUnits.map((machineUnit) => ({
             id: machineUnit.id,
@@ -336,18 +344,87 @@ export class PrismaDispatchRepository implements DispatchRepository {
 
   constructor(private readonly prismaClient: PrismaClient) {}
 
-  async listOrders(): Promise<OrderApiRecord[]> {
+  async listOrders(input?: ListOrdersInput): Promise<OrderApiRecord[]> {
     await this.ensureSeedData();
     const orders = await this.prismaClient.order.findMany({
+      where: input?.teamAssignment ? { teamAssignment: input.teamAssignment } : undefined,
       include: {
         machineUnits: {
+          include: {
+            mediaFiles: {
+              select: { kind: true }
+            }
+          },
           orderBy: { id: 'asc' }
         }
       },
-      orderBy: { dueDate: 'asc' }
+      orderBy: [{ dueDate: 'asc' }, { id: 'asc' }]
     });
 
-    return orders.map(mapOrder);
+    return orders.map((order) => mapOrderListRecord(order));
+  }
+
+  async listDispatchOrders(): Promise<DispatchOrdersByTeamApiRecord> {
+    const orders = await this.listOrders();
+    return {
+      TEAM_A: orders.filter((order) => order.teamAssignment === 'TEAM_A'),
+      TEAM_B: orders.filter((order) => order.teamAssignment === 'TEAM_B')
+    };
+  }
+
+  async getOrderById(id: string): Promise<OrderDetailApiRecord | null> {
+    await this.ensureSeedData();
+    const order = await this.prismaClient.order.findUnique({
+      where: { id },
+      include: {
+        machineUnits: {
+          include: { mediaFiles: true },
+          orderBy: { id: 'asc' }
+        }
+      }
+    });
+
+    return order ? mapOrderDetailRecord(order) : null;
+  }
+
+  async updateOrderTeamAssignment(input: UpdateOrderTeamAssignmentInput): Promise<OrderDetailApiRecord | null> {
+    await this.ensureSeedData();
+
+    try {
+      await this.prismaClient.order.update({
+        where: { id: input.id },
+        data: {
+          teamAssignment: input.teamAssignment,
+          assignedAt: new Date()
+        }
+      });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
+        return null;
+      }
+      throw error;
+    }
+
+    return this.getOrderById(input.id);
+  }
+
+  async generateOrderQrs(id: string): Promise<OrderDetailApiRecord | null> {
+    await this.ensureSeedData();
+    const order = await this.prismaClient.order.findUnique({
+      where: { id },
+      select: { machineUnits: { select: { id: true }, orderBy: { id: 'asc' } } }
+    });
+
+    if (!order) return null;
+
+    for (const machineUnit of order.machineUnits) {
+      const withSerial = await this.generateSerialNumber(machineUnit.id);
+      if (withSerial?.serialNumber) {
+        await this.generateQrCode(machineUnit.id);
+      }
+    }
+
+    return this.getOrderById(id);
   }
 
   async reconcileZohoOrder(input: NormalizedOrder): Promise<ReconcileZohoOrderResult> {
@@ -357,6 +434,11 @@ export class PrismaDispatchRepository implements DispatchRepository {
       where: { externalRef: input.zohoSalesOrderId },
       include: {
         machineUnits: {
+          include: {
+            mediaFiles: {
+              select: { kind: true }
+            }
+          },
           orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }]
         }
       }
@@ -382,11 +464,15 @@ export class PrismaDispatchRepository implements DispatchRepository {
             data: {
               id: input.salesOrderNumber,
               destination: 'Factory dispatch lane',
+              teamAssignment: getNextTeamAssignment(
+                await tx.order.count({ where: { assignedAt: { not: null } } })
+              ),
+              assignedAt: new Date(),
               ...orderData
             }
           });
 
-      const machineUnitsByLineItem = new Map<string, PrismaOrderPayload['machineUnits']>();
+      const machineUnitsByLineItem = new Map<string, PrismaOrderListPayload['machineUnits']>();
       for (const machineUnit of existingOrder?.machineUnits ?? []) {
         const key = machineUnit.externalRef ?? machineUnit.id;
         const siblings = machineUnitsByLineItem.get(key);
@@ -397,7 +483,7 @@ export class PrismaDispatchRepository implements DispatchRepository {
         }
       }
 
-      const deletedMachineUnits: PrismaOrderPayload['machineUnits'] = [];
+      const deletedMachineUnits: PrismaOrderListPayload['machineUnits'] = [];
       const machineUnitsToCreate: Array<{
         orderId: string;
         externalRef: string;
@@ -481,6 +567,7 @@ export class PrismaDispatchRepository implements DispatchRepository {
           orderId: persistedOrder.id,
           requestPayload: input,
           responsePayload: {
+            teamAssignment: persistedOrder.teamAssignment,
             deletedMachineUnitIds: deletedMachineUnits.map((machineUnit) => machineUnit.id),
             reconciledLineItemIds: input.machineUnits.map((machineUnit) => machineUnit.zohoLineItemId)
           },
@@ -495,6 +582,11 @@ export class PrismaDispatchRepository implements DispatchRepository {
       where: { id: persistedOrder.id },
       include: {
         machineUnits: {
+          include: {
+            mediaFiles: {
+              select: { kind: true }
+            }
+          },
           orderBy: { id: 'asc' }
         }
       }
@@ -505,7 +597,7 @@ export class PrismaDispatchRepository implements DispatchRepository {
     }
 
     return {
-      order: mapOrder(reconciledOrder),
+      order: mapOrderListRecord(reconciledOrder),
       deletedMachineUnitIds: deletedMachineUnits.map((machineUnit) => machineUnit.id)
     };
   }

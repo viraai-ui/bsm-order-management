@@ -3,7 +3,9 @@ import {
   ApiError,
   deleteMedia,
   fetchDashboardOrders,
+  fetchDispatchOrdersByTeam,
   fetchMachineUnitById,
+  fetchOrderById,
   groupOrdersByBucket,
   mapMachineUnitDetail,
   mapOrderToDispatchOrder,
@@ -216,6 +218,102 @@ describe('apiClient', () => {
       photos: 4,
       mediaFiles: [],
     }));
+  });
+
+  it('loads order detail from the order-first endpoint', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        data: {
+          id: 'BSM-24018',
+          salesOrderNumber: 'BSM-24018',
+          customerName: 'Anand Cooling Towers',
+          customerEmail: 'ops@anand.example',
+          deliveryDate: '2026-04-13T08:30:00Z',
+          destination: 'Delhi NCR',
+          status: 'Dispatch ready',
+          teamAssignment: 'TEAM_A',
+          assignedAt: '2026-04-12T09:00:00Z',
+          machineUnitCount: 1,
+          totalQuantity: 1,
+          imageCount: 4,
+          videoCount: 2,
+          requiredVideoCount: 2,
+          serialNumberCount: 1,
+          qrCodeCount: 1,
+          notes: null,
+          createdAt: '2026-04-12T09:00:00Z',
+          updatedAt: '2026-04-13T08:00:00Z',
+          workflowSummary: {
+            awaitingMediaCount: 0,
+            mediaUploadedCount: 0,
+            readyForDispatchCount: 1,
+            dispatchedCount: 0,
+          },
+          machineUnits: [{
+            id: 'MU-24018-1',
+            zohoLineItemId: 'line-1',
+            productName: 'Axial Fan Unit',
+            quantity: 1,
+            serialNumber: '262700014',
+            qrCodeValue: 'qr://262700014',
+            imageCount: 4,
+            videoCount: 2,
+            requiredVideoCount: 2,
+            workflowStage: 'READY_FOR_DISPATCH',
+            mediaFiles: [],
+          }],
+        },
+      }),
+    }));
+
+    await expect(fetchOrderById('BSM-24018')).resolves.toEqual(expect.objectContaining({
+      id: 'BSM-24018',
+      teamAssignment: 'TEAM_A',
+      machineUnitCount: 1,
+      workflowSummary: expect.objectContaining({ readyForDispatchCount: 1 }),
+    }));
+  });
+
+  it('falls back to grouping order list data when team dispatch endpoint is unavailable', async () => {
+    vi.stubGlobal('fetch', vi.fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 404,
+        json: async () => ({ error: 'Not found' }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: [
+            {
+              id: 'BSM-24018',
+              salesOrderNumber: 'BSM-24018',
+              customerName: 'Anand Cooling Towers',
+              destination: 'Delhi NCR',
+              deliveryDate: '2026-04-13T08:30:00Z',
+              status: 'Awaiting media',
+              teamAssignment: 'TEAM_A',
+              machineUnits: [{ id: 'MU-1', zohoLineItemId: 'line-1', productName: 'Axial Fan Unit', quantity: 1 }],
+            },
+            {
+              id: 'BSM-24019',
+              salesOrderNumber: 'BSM-24019',
+              customerName: 'Northline Infra',
+              destination: 'Lucknow',
+              deliveryDate: '2026-04-14T08:30:00Z',
+              status: 'Testing complete',
+              teamAssignment: 'TEAM_B',
+              machineUnits: [{ id: 'MU-2', zohoLineItemId: 'line-2', productName: 'Frame', quantity: 1 }],
+            },
+          ],
+        }),
+      }));
+
+    await expect(fetchDispatchOrdersByTeam()).resolves.toEqual({
+      TEAM_A: [expect.objectContaining({ id: 'BSM-24018' })],
+      TEAM_B: [expect.objectContaining({ id: 'BSM-24019' })],
+    });
   });
 
   it('updates the machine workflow stage via the API', async () => {

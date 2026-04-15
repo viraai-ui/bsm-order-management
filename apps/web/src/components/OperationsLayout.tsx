@@ -4,11 +4,10 @@ import { NavLink } from 'react-router-dom';
 const navItems: Array<{ label: string; to: string; end?: boolean }> = [
   { label: 'Dashboard', to: '/dashboard', end: true },
   { label: 'Orders', to: '/orders' },
-  { label: 'Machine Units', to: '/machine-units' },
+  { label: 'QR Code Generator', to: '/qr' },
   { label: 'Dispatch', to: '/dispatch' },
   { label: 'Media', to: '/media' },
-  { label: 'Users', to: '/users' },
-  { label: 'Sync Logs', to: '/sync-logs' },
+  { label: 'Settings', to: '/settings' },
 ];
 
 type OperationsLayoutProps = PropsWithChildren<{

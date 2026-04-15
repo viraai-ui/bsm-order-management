@@ -1,7 +1,7 @@
 :root {
   color: #e2e2e5;
   background: #121416;
-  font-family: Inter, system-ui, sans-serif;
+  font-family: "Segoe UI", system-ui, sans-serif;
   line-height: 1.5;
   font-weight: 400;
   color-scheme: dark;
@@ -342,9 +342,131 @@ textarea { resize: vertical; }
   .buckets-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
+.page-filters-grid,
+.order-list,
+.order-detail-stack,
+.settings-list {
+  display: grid;
+  gap: 1rem;
+}
+
+.secondary-actions {
+  display: flex;
+  gap: 1rem;
+}
+
+.page-filters-grid {
+  grid-template-columns: minmax(0, 2fr) minmax(220px, 1fr);
+}
+
+.order-list-card,
+.team-board,
+.settings-panel {
+  background: var(--surface-high);
+  border: 1px solid var(--outline);
+  border-radius: 8px;
+  padding: 1rem;
+}
+
+.order-list-card.compact,
+.settings-row {
+  padding: 0.95rem 1rem;
+}
+
+.order-list-card-main,
+.order-card-actions,
+.order-badges,
+.settings-row {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.order-list-card-main,
+.settings-row {
+  justify-content: space-between;
+  align-items: start;
+}
+
+.order-card-actions,
+.order-badges,
+.secondary-actions {
+  flex-wrap: wrap;
+}
+
+.order-list-card h3,
+.team-board h3,
+.settings-panel h3 {
+  margin: 0.2rem 0;
+}
+
+.order-list-card > .order-stats-grid,
+.order-list-card > .order-card-actions {
+  margin-top: 1rem;
+}
+
+.order-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.85rem;
+}
+
+.order-stats-grid > div {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.team-board-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  align-items: start;
+}
+
+.settings-shell {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  align-items: start;
+}
+
+.settings-nav {
+  min-width: 220px;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.settings-content {
+  flex: 1;
+}
+
+.settings-row {
+  background: var(--surface);
+  border-radius: 8px;
+  border: 1px solid var(--outline);
+}
+
+.settings-row p {
+  margin: 0.35rem 0 0;
+}
+
+.media-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+@media (max-width: 1180px) {
+  .dashboard-shell { grid-template-columns: 220px 1fr; }
+  .rail {
+    grid-column: 1 / -1;
+    border-left: 0;
+    border-top: 1px solid var(--outline);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .buckets-grid, .team-board-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
 @media (max-width: 900px) {
   .login-shell, .dashboard-shell, .machine-hero-grid, .machine-body-grid { grid-template-columns: 1fr; }
   .sidebar { border-right: 0; border-bottom: 1px solid var(--outline); }
-  .hero-grid, .buckets-grid, .rail, .action-grid, .action-grid-wide, .machine-summary-grid, .media-stats, .media-form-grid { grid-template-columns: 1fr; }
-  .topbar, .topbar-actions, .page-header, .detail-panel-header, .upload-actions { flex-direction: column; align-items: stretch; }
+  .hero-grid, .buckets-grid, .rail, .action-grid, .action-grid-wide, .machine-summary-grid, .media-stats, .media-form-grid, .page-filters-grid, .order-stats-grid, .team-board-grid, .settings-shell { grid-template-columns: 1fr; }
+  .topbar, .topbar-actions, .page-header, .detail-panel-header, .upload-actions, .order-list-card-main, .settings-row { flex-direction: column; align-items: stretch; }
 }

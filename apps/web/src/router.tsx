@@ -1,9 +1,23 @@
+import type { ReactElement } from 'react';
 import { Navigate, createBrowserRouter } from 'react-router-dom';
 import { AuthGuard } from './features/auth/AuthGuard';
-import { DashboardPage } from './features/dashboard/DashboardPage';
 import { LoginPage } from './features/auth/LoginPage';
+import { DashboardPage } from './features/dashboard/DashboardPage';
+import { DispatchBoardPage } from './features/dispatch/DispatchBoardPage';
+import { MediaOrderDetailPage } from './features/media/MediaOrderDetailPage';
+import { MediaOrdersPage } from './features/media/MediaOrdersPage';
+import { OrderDetailPage } from './features/orders/OrderDetailPage';
+import { OrdersPage } from './features/orders/OrdersPage';
+import { QrOrderDetailPage } from './features/qr/QrOrderDetailPage';
+import { QrOrdersPage } from './features/qr/QrOrdersPage';
+import { SettingsLayout } from './features/settings/SettingsLayout';
+import { SyncLogsPage } from './features/settings/SyncLogsPage';
+import { UsersPage } from './features/settings/UsersPage';
 import { MachineUnitPage } from './pages/MachineUnitPage';
-import { PlaceholderPage } from './pages/PlaceholderPage';
+
+function protectedRoute(element: ReactElement) {
+  return <AuthGuard>{element}</AuthGuard>;
+}
 
 export const router = createBrowserRouter([
   {
@@ -16,81 +30,56 @@ export const router = createBrowserRouter([
   },
   {
     path: '/dashboard',
-    element: (
-      <AuthGuard>
-        <DashboardPage />
-      </AuthGuard>
-    ),
+    element: protectedRoute(<DashboardPage />),
   },
   {
     path: '/orders',
-    element: (
-      <AuthGuard>
-        <PlaceholderPage
-          section="Orders"
-          description="Order management is still being built. For now, use the dispatch dashboard and machine unit detail views for live work."
-        />
-      </AuthGuard>
-    ),
+    element: protectedRoute(<OrdersPage />),
   },
   {
-    path: '/machine-units',
-    element: (
-      <AuthGuard>
-        <PlaceholderPage
-          section="Machine Units"
-          description="A machine unit list view is not in this frontend yet, but machine unit detail pages remain available from dispatch cards."
-        />
-      </AuthGuard>
-    ),
+    path: '/orders/:id',
+    element: protectedRoute(<OrderDetailPage />),
+  },
+  {
+    path: '/qr',
+    element: protectedRoute(<QrOrdersPage />),
+  },
+  {
+    path: '/qr/:id',
+    element: protectedRoute(<QrOrderDetailPage />),
   },
   {
     path: '/dispatch',
-    element: (
-      <AuthGuard>
-        <DashboardPage />
-      </AuthGuard>
-    ),
+    element: protectedRoute(<DispatchBoardPage />),
   },
   {
     path: '/media',
-    element: (
-      <AuthGuard>
-        <PlaceholderPage
-          section="Media"
-          description="Media management will land in a dedicated screen later. Existing media upload and removal still work inside machine unit detail pages."
-        />
-      </AuthGuard>
-    ),
+    element: protectedRoute(<MediaOrdersPage />),
   },
   {
-    path: '/users',
-    element: (
-      <AuthGuard>
-        <PlaceholderPage
-          section="Users"
-          description="User administration has a route now so navigation works, but the full management UI has not been implemented yet."
-        />
-      </AuthGuard>
-    ),
+    path: '/media/:id',
+    element: protectedRoute(<MediaOrderDetailPage />),
   },
   {
-    path: '/sync-logs',
-    element: (
-      <AuthGuard>
-        <PlaceholderPage
-          section="Sync Logs"
-          description="Sync logs are not exposed in a standalone page yet. Use the dashboard summary until the full log explorer is added."
-        />
-      </AuthGuard>
-    ),
+    path: '/settings',
+    element: protectedRoute(<SettingsLayout />),
+    children: [
+      {
+        index: true,
+        element: <Navigate to="/settings/users" replace />,
+      },
+      {
+        path: 'users',
+        element: <UsersPage />,
+      },
+      {
+        path: 'sync-logs',
+        element: <SyncLogsPage />,
+      },
+    ],
   },
   {
     path: '/machine-units/:id',
-    element: (
-      <AuthGuard>
-        <MachineUnitPage />
-      </AuthGuard>
-    ),
+    element: protectedRoute(<MachineUnitPage />),
   },
 ]);

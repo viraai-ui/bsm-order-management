@@ -17,6 +17,15 @@ describe('createZohoSyncService', () => {
         deliveryDate: `${input.deliveryDate ?? input.orderDate}T00:00:00.000Z`,
         destination: 'Factory dispatch lane',
         status: 'Awaiting media',
+        teamAssignment: 'TEAM_A',
+        assignedAt: `${input.deliveryDate ?? input.orderDate}T00:00:00.000Z`,
+        machineUnitCount: input.machineUnits.length,
+        totalQuantity: input.machineUnits.reduce((sum, machineUnit) => sum + machineUnit.quantity, 0),
+        imageCount: 0,
+        videoCount: 0,
+        requiredVideoCount: input.machineUnits.length * 2,
+        serialNumberCount: 0,
+        qrCodeCount: 0,
         machineUnits: input.machineUnits.map((machineUnit) => ({
           id: `${input.salesOrderNumber}-${machineUnit.zohoLineItemId}`,
           zohoLineItemId: machineUnit.zohoLineItemId,
@@ -82,6 +91,15 @@ describe('createZohoSyncService', () => {
           deliveryDate: '2026-04-20T00:00:00.000Z',
           destination: 'Factory dispatch lane',
           status: 'Awaiting media',
+          teamAssignment: 'TEAM_B',
+          assignedAt: '2026-04-20T00:00:00.000Z',
+          machineUnitCount: 0,
+          totalQuantity: 0,
+          imageCount: 0,
+          videoCount: 0,
+          requiredVideoCount: 0,
+          serialNumberCount: 0,
+          qrCodeCount: 0,
           machineUnits: []
         },
         deletedMachineUnitIds: []
@@ -132,6 +150,15 @@ describe('createZohoSyncService', () => {
         deliveryDate: '2026-04-20T00:00:00.000Z',
         destination: 'Factory dispatch lane',
         status: 'Awaiting media',
+        teamAssignment: 'TEAM_A',
+        assignedAt: '2026-04-20T00:00:00.000Z',
+        machineUnitCount: 0,
+        totalQuantity: 0,
+        imageCount: 0,
+        videoCount: 0,
+        requiredVideoCount: 0,
+        serialNumberCount: 0,
+        qrCodeCount: 0,
         machineUnits: []
       },
       deletedMachineUnitIds: []
@@ -214,6 +241,10 @@ describe('createZohoSyncService', () => {
 function buildDispatchRepository(overrides: Partial<DispatchRepository>): DispatchRepository {
   return {
     listOrders: vi.fn().mockResolvedValue([]),
+    listDispatchOrders: vi.fn().mockResolvedValue({ TEAM_A: [], TEAM_B: [] }),
+    getOrderById: vi.fn().mockResolvedValue(null),
+    updateOrderTeamAssignment: vi.fn().mockResolvedValue(null),
+    generateOrderQrs: vi.fn().mockResolvedValue(null),
     reconcileZohoOrder: vi.fn(),
     getMachineUnitById: vi.fn().mockResolvedValue(null),
     generateSerialNumber: vi.fn().mockResolvedValue(null),

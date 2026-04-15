@@ -51,6 +51,11 @@ enum WorkflowStage {
   DISPATCHED
 }
 
+enum TeamAssignment {
+  TEAM_A
+  TEAM_B
+}
+
 model User {
   id           String    @id @default(cuid())
   email        String    @unique
@@ -71,6 +76,8 @@ model Order {
   dueDate        DateTime?
   destination    String          @default("Factory dispatch lane")
   status         OrderStatus     @default(PENDING)
+  teamAssignment TeamAssignment?
+  assignedAt     DateTime?
   notes          String?
   createdAt      DateTime        @default(now())
   updatedAt      DateTime        @updatedAt
@@ -79,6 +86,9 @@ model Order {
   machineUnits   MachineUnit[]
   mediaFiles     MediaFile[]
   syncLogs       SyncLog[]
+
+  @@index([teamAssignment, dueDate])
+  @@index([assignedAt])
 }
 
 model MachineUnit {

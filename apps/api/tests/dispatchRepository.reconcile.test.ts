@@ -14,6 +14,8 @@ describe('PrismaDispatchRepository Zoho reconciliation', () => {
         customerName: 'Acme Hospitals',
         dueDate: new Date('2026-04-20T00:00:00.000Z'),
         status: OrderStatus.PENDING,
+        teamAssignment: 'TEAM_B',
+        assignedAt: new Date('2026-04-13T00:01:00.000Z'),
         machineUnits: [
           buildMachineUnit({ id: 'mu-1', orderId: 'SO-0042', externalRef: 'line-1', name: 'Axial Fan Unit', sku: 'AFU-2' }),
           buildMachineUnit({ id: 'mu-2', orderId: 'SO-0042', externalRef: 'line-1', name: 'Axial Fan Unit', sku: 'AFU-2' }),
@@ -50,7 +52,9 @@ describe('PrismaDispatchRepository Zoho reconciliation', () => {
         externalRef: 'zoho-so-42',
         customerName: 'Acme Hospitals',
         dueDate: new Date('2026-04-20T00:00:00.000Z'),
-        status: OrderStatus.PENDING
+        status: OrderStatus.PENDING,
+        teamAssignment: 'TEAM_B',
+        assignedAt: expect.any(Date)
       })
     });
     expect(prisma.machineUnit.createMany).toHaveBeenCalledWith({
@@ -70,8 +74,10 @@ describe('PrismaDispatchRepository Zoho reconciliation', () => {
       })
     });
     expect(result.deletedMachineUnitIds).toEqual([]);
+    expect(result.order.teamAssignment).toBe('TEAM_B');
     expect(result.order.machineUnits).toEqual([
-      expect.objectContaining({ zohoLineItemId: 'line-1', productName: 'Axial Fan Unit', quantity: 2, sku: 'AFU-2' }),
+      expect.objectContaining({ zohoLineItemId: 'line-1', productName: 'Axial Fan Unit', quantity: 1, sku: 'AFU-2' }),
+      expect.objectContaining({ zohoLineItemId: 'line-1', productName: 'Axial Fan Unit', quantity: 1, sku: 'AFU-2' }),
       expect.objectContaining({ zohoLineItemId: 'line-2', productName: 'Control Panel', quantity: 1, sku: null })
     ]);
   });
@@ -163,7 +169,8 @@ describe('PrismaDispatchRepository Zoho reconciliation', () => {
     expect(result.deletedMachineUnitIds).toEqual(['mu-pack']);
     expect(result.order.customerName).toBe('Acme Hospitals Updated');
     expect(result.order.machineUnits).toEqual([
-      expect.objectContaining({ zohoLineItemId: 'line-1', productName: 'Axial Fan Unit v2', quantity: 2, sku: 'AFU-2' }),
+      expect.objectContaining({ zohoLineItemId: 'line-1', productName: 'Axial Fan Unit v2', quantity: 1, sku: 'AFU-2' }),
+      expect.objectContaining({ zohoLineItemId: 'line-1', productName: 'Axial Fan Unit v2', quantity: 1, sku: 'AFU-2' }),
       expect.objectContaining({ zohoLineItemId: 'line-2', productName: 'Control Panel', quantity: 1 })
     ]);
   });
@@ -202,7 +209,17 @@ type MachineUnitRecord = Prisma.MachineUnitGetPayload<{
 }>;
 
 type OrderRecord = Prisma.OrderGetPayload<{
-  include: { machineUnits: true };
+  include: {
+    machineUnits: {
+      include: {
+        mediaFiles: {
+          select: {
+            kind: true;
+          };
+        };
+      };
+    };
+  };
 }>;
 
 function buildOrderRecord(overrides: Partial<OrderRecord> & Pick<OrderRecord, 'machineUnits'>): OrderRecord {
@@ -214,6 +231,8 @@ function buildOrderRecord(overrides: Partial<OrderRecord> & Pick<OrderRecord, 'm
     dueDate: new Date('2026-04-20T00:00:00.000Z'),
     destination: 'Factory dispatch lane',
     status: OrderStatus.PENDING,
+    teamAssignment: 'TEAM_A',
+    assignedAt: new Date('2026-04-13T00:00:00.000Z'),
     notes: null,
     createdAt: new Date('2026-04-13T00:00:00.000Z'),
     updatedAt: new Date('2026-04-13T00:00:00.000Z'),

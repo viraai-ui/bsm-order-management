@@ -2,6 +2,14 @@ export type WorkflowStage = 'PACKING_TESTING' | 'MEDIA_UPLOADED' | 'READY_FOR_DI
 
 export type MediaKind = 'IMAGE' | 'VIDEO' | 'DOCUMENT';
 
+export type {
+  DispatchOrdersByTeamApiRecord,
+  OrderApiRecord,
+  OrderDetailApiRecord,
+  OrderMachineSummaryApiRecord,
+  OrderTeamAssignment,
+} from './orders.js';
+
 export type MediaApiRecord = {
   id: string;
   machineUnitId: string;
@@ -33,18 +41,3 @@ export type MachineUnitApiRecord = {
   mediaFiles: MediaApiRecord[];
 };
 
-export type OrderApiRecord = {
-  id: string;
-  salesOrderNumber: string;
-  customerName: string;
-  deliveryDate: string | null;
-  destination: string;
-  status: string;
-  machineUnits: Array<{
-    id: string;
-    zohoLineItemId: string;
-    productName: string;
-    quantity: number;
-    sku?: string | null;
-  }>;
-};
