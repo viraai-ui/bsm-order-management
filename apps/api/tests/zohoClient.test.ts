@@ -16,7 +16,7 @@ describe('createZohoClient', () => {
     activeStatuses: ['confirmed', 'packed']
   };
 
-  it('refreshes the access token, fetches all sales-order pages, and filters inactive statuses', async () => {
+  it('refreshes the access token, fetches all sales-order pages, loads details, and filters inactive statuses', async () => {
     const calls: FetchCall[] = [];
     const fetcher: typeof fetch = async (input, init) => {
       calls.push({ input, init });
@@ -34,8 +34,8 @@ describe('createZohoClient', () => {
         return new Response(
           JSON.stringify({
             salesorders: [
-              buildSalesOrder({ salesorder_id: 'so-1', status: 'confirmed' }),
-              buildSalesOrder({ salesorder_id: 'so-2', status: 'delivered' })
+              buildSalesOrderSummary({ salesorder_id: 'so-1', status: 'confirmed' }),
+              buildSalesOrderSummary({ salesorder_id: 'so-2', status: 'delivered' })
             ],
             page_context: { has_more_page: true }
           }),
@@ -50,8 +50,8 @@ describe('createZohoClient', () => {
         return new Response(
           JSON.stringify({
             salesorders: [
-              buildSalesOrder({ salesorder_id: 'so-3', status: 'packed' }),
-              buildSalesOrder({ salesorder_id: 'so-4', status: 'cancelled' })
+              buildSalesOrderSummary({ salesorder_id: 'so-3', status: 'packed' }),
+              buildSalesOrderSummary({ salesorder_id: 'so-4', status: 'cancelled' })
             ],
             page_context: { has_more_page: false }
           }),
@@ -60,6 +60,20 @@ describe('createZohoClient', () => {
             headers: { 'Content-Type': 'application/json' }
           }
         );
+      }
+
+      if (url === 'https://www.zohoapis.com/inventory/v1/salesorders/so-1?organization_id=1234567890') {
+        return new Response(JSON.stringify({ salesorder: buildSalesOrder({ salesorder_id: 'so-1', status: 'confirmed' }) }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
+      if (url === 'https://www.zohoapis.com/inventory/v1/salesorders/so-3?organization_id=1234567890') {
+        return new Response(JSON.stringify({ salesorder: buildSalesOrder({ salesorder_id: 'so-3', status: 'packed' }) }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        });
       }
 
       throw new Error(`Unexpected fetch: ${url}`);
@@ -72,7 +86,7 @@ describe('createZohoClient', () => {
       buildSalesOrder({ salesorder_id: 'so-3', status: 'packed' })
     ]);
 
-    expect(calls).toHaveLength(3);
+    expect(calls).toHaveLength(5);
     expect(String(calls[0]?.input)).toBe('https://accounts.zoho.com/oauth/v2/token');
     expect(calls[0]?.init?.method).toBe('POST');
     expect(calls[0]?.init?.headers).toEqual({ 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' });
@@ -80,12 +94,10 @@ describe('createZohoClient', () => {
       'refresh_token=zoho-refresh-token&client_id=zoho-client-id&client_secret=zoho-client-secret&grant_type=refresh_token'
     );
 
-    expect(calls[1]?.init?.headers).toEqual({
-      Authorization: 'Zoho-oauthtoken fresh-access-token'
-    });
-    expect(calls[2]?.init?.headers).toEqual({
-      Authorization: 'Zoho-oauthtoken fresh-access-token'
-    });
+    expect(calls[1]?.init?.headers).toEqual({ Authorization: 'Zoho-oauthtoken fresh-access-token' });
+    expect(calls[2]?.init?.headers).toEqual({ Authorization: 'Zoho-oauthtoken fresh-access-token' });
+    expect(calls[3]?.init?.headers).toEqual({ Authorization: 'Zoho-oauthtoken fresh-access-token' });
+    expect(calls[4]?.init?.headers).toEqual({ Authorization: 'Zoho-oauthtoken fresh-access-token' });
   });
 
   it('uses the matching accounts domain for India tenants', async () => {
@@ -156,4 +168,16 @@ function buildSalesOrder(overrides: Partial<ZohoSalesOrder>): ZohoSalesOrder {
     ],
     ...overrides
   };
+}
+
+function buildSalesOrderSummary(overrides: Partial<ZohoSalesOrder>): ZohoSalesOrder {
+  return {
+    salesorder_id: 'so-default',
+    salesorder_number: 'SO-0001',
+    date: '2026-04-13',
+    delivery_date: '2026-04-20',
+    customer_name: 'BSM Customer',
+    status: 'confirmed',
+    ...overrides
+  } as ZohoSalesOrder;
 }

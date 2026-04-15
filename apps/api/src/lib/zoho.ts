@@ -13,7 +13,7 @@ export type ZohoSalesOrder = {
   delivery_date?: string;
   customer_name: string;
   status: string;
-  line_items: ZohoLineItem[];
+  line_items?: ZohoLineItem[];
 };
 
 export type NormalizedMachineUnit = {

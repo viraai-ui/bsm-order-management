@@ -20,6 +20,12 @@ type ZohoSalesOrdersResponse = {
   code?: number;
 };
 
+type ZohoSalesOrderDetailResponse = {
+  salesorder?: ZohoSalesOrder;
+  message?: string;
+  code?: number;
+};
+
 export function createZohoClient(config: ZohoConfig, fetcher: Fetcher = fetch) {
   const activeStatuses = new Set(config.activeStatuses.map((status) => status.toLowerCase()));
 
@@ -44,9 +50,12 @@ export function createZohoClient(config: ZohoConfig, fetcher: Fetcher = fetch) {
           throw new Error(`Failed to fetch Zoho sales orders page ${page}: ${errorMessage}`);
         }
 
-        orders.push(
-          ...(payload.salesorders ?? []).filter((order) => activeStatuses.has(order.status.toLowerCase()))
-        );
+        const activeOrders = (payload.salesorders ?? []).filter((order) => activeStatuses.has(order.status.toLowerCase()));
+
+        for (const order of activeOrders) {
+          orders.push(await fetchSalesOrderDetail(config, accessToken, order.salesorder_id, fetcher));
+        }
+
         hasMorePage = payload.page_context?.has_more_page === true;
         page += 1;
       }
@@ -82,11 +91,39 @@ async function refreshAccessToken(config: ZohoConfig, fetcher: Fetcher): Promise
   return payload.access_token;
 }
 
+async function fetchSalesOrderDetail(
+  config: ZohoConfig,
+  accessToken: string,
+  salesOrderId: string,
+  fetcher: Fetcher
+): Promise<ZohoSalesOrder> {
+  const response = await fetcher(buildSalesOrderDetailUrl(config, salesOrderId), {
+    headers: {
+      Authorization: `Zoho-oauthtoken ${accessToken}`
+    }
+  });
+
+  const payload = (await response.json()) as ZohoSalesOrderDetailResponse;
+
+  if (!response.ok || !payload.salesorder) {
+    const errorMessage = payload.message ?? response.statusText ?? 'Unknown error';
+    throw new Error(`Failed to fetch Zoho sales order ${salesOrderId}: ${errorMessage}`);
+  }
+
+  return payload.salesorder;
+}
+
 function buildSalesOrdersUrl(config: ZohoConfig, page: number) {
   const url = new URL(`${config.apiBaseUrl}/salesorders`);
   url.searchParams.set('organization_id', config.organizationId);
   url.searchParams.set('page', String(page));
   url.searchParams.set('per_page', String(SALES_ORDER_PAGE_SIZE));
+  return url.toString();
+}
+
+function buildSalesOrderDetailUrl(config: ZohoConfig, salesOrderId: string) {
+  const url = new URL(`${config.apiBaseUrl}/salesorders/${salesOrderId}`);
+  url.searchParams.set('organization_id', config.organizationId);
   return url.toString();
 }
 

@@ -13,7 +13,7 @@ export function mapZohoSalesOrder(order: ZohoSalesOrder): NormalizedOrder {
     deliveryDate: order.delivery_date,
     customerName: order.customer_name,
     status: order.status,
-    machineUnits: order.line_items.map(mapZohoLineItem)
+    machineUnits: (order.line_items ?? []).map(mapZohoLineItem)
   };
 }
 
