@@ -1,7 +1,6 @@
 import type { ApiConfig } from '../lib/env.js';
 import type { ZohoSalesOrder } from '../lib/zoho.js';
 
-const ZOHO_TOKEN_URL = 'https://accounts.zoho.com/oauth/v2/token';
 const SALES_ORDER_PAGE_SIZE = 200;
 
 type ZohoConfig = NonNullable<ApiConfig['zoho']>;
@@ -65,7 +64,7 @@ async function refreshAccessToken(config: ZohoConfig, fetcher: Fetcher): Promise
     grant_type: 'refresh_token'
   });
 
-  const response = await fetcher(ZOHO_TOKEN_URL, {
+  const response = await fetcher(buildZohoTokenUrl(config), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8'
@@ -89,4 +88,15 @@ function buildSalesOrdersUrl(config: ZohoConfig, page: number) {
   url.searchParams.set('page', String(page));
   url.searchParams.set('per_page', String(SALES_ORDER_PAGE_SIZE));
   return url.toString();
+}
+
+function buildZohoTokenUrl(config: ZohoConfig) {
+  const apiHost = new URL(config.apiBaseUrl).hostname;
+
+  if (apiHost.startsWith('www.zohoapis.')) {
+    const domainSuffix = apiHost.slice('www.zohoapis.'.length);
+    return `https://accounts.zoho.${domainSuffix}/oauth/v2/token`;
+  }
+
+  return 'https://accounts.zoho.com/oauth/v2/token';
 }
