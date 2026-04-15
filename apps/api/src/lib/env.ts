@@ -1,6 +1,8 @@
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import type { AuthConfig } from './auth.js';
+import type { MediaStorageConfig } from './mediaStorage.js';
+import { parseMediaStorageConfig } from './mediaStorage.js';
 import { prisma } from './prisma.js';
 import { PrismaDispatchRepository, type DispatchRepository } from '../repositories/dispatchRepository.js';
 
@@ -38,6 +40,7 @@ export type ApiConfig = {
   nodeEnv: 'development' | 'test' | 'production';
   corsOrigin: string;
   auth: AuthConfig;
+  mediaStorage: MediaStorageConfig;
   dispatchRepository: DispatchRepository;
   zoho: {
     clientId: string;
@@ -68,6 +71,7 @@ export async function buildApiConfig(env: NodeJS.ProcessEnv = process.env): Prom
         passwordHash
       }
     },
+    mediaStorage: parseMediaStorageConfig(env),
     dispatchRepository: new PrismaDispatchRepository(prisma),
     zoho: {
       clientId: parsed.ZOHO_CLIENT_ID,

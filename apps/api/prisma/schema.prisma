@@ -48,6 +48,7 @@ enum WorkflowStage {
   PACKING_TESTING
   MEDIA_UPLOADED
   READY_FOR_DISPATCH
+  DISPATCHED
 }
 
 model User {
@@ -93,26 +94,31 @@ model MachineUnit {
   workflowStage      WorkflowStage     @default(PACKING_TESTING)
   requiredVideoCount Int               @default(2)
   location           String?
+  dispatchedAt       DateTime?
+  dispatchNotes      String?
   createdAt          DateTime          @default(now())
   updatedAt          DateTime          @updatedAt
   order              Order             @relation(fields: [orderId], references: [id], onDelete: Cascade)
   mediaFiles         MediaFile[]
 
   @@index([orderId])
+  @@index([dispatchedAt])
 }
 
 model MediaFile {
-  id            String      @id @default(cuid())
-  orderId       String?
-  machineUnitId String?
-  kind          MediaKind
-  fileName      String
-  storagePath   String
-  mimeType      String?
-  createdAt     DateTime    @default(now())
-  updatedAt     DateTime    @updatedAt
-  order         Order?      @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  machineUnit   MachineUnit? @relation(fields: [machineUnitId], references: [id], onDelete: Cascade)
+  id               String       @id @default(cuid())
+  orderId          String?
+  machineUnitId    String?
+  kind             MediaKind
+  fileName         String
+  storagePath      String
+  mimeType         String?
+  publicUrl        String?
+  sizeBytes        Int?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+  order            Order?       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  machineUnit      MachineUnit? @relation(fields: [machineUnitId], references: [id], onDelete: Cascade)
 
   @@index([orderId])
   @@index([machineUnitId])
