@@ -1,0 +1,53 @@
+import type { PropsWithChildren, ReactNode } from 'react';
+import { NavLink } from 'react-router-dom';
+
+const navItems: Array<{ label: string; to: string; end?: boolean }> = [
+  { label: 'Dashboard', to: '/dashboard', end: true },
+  { label: 'Orders', to: '/orders' },
+  { label: 'Machine Units', to: '/machine-units' },
+  { label: 'Dispatch', to: '/dispatch' },
+  { label: 'Media', to: '/media' },
+  { label: 'Users', to: '/users' },
+  { label: 'Sync Logs', to: '/sync-logs' },
+];
+
+type OperationsLayoutProps = PropsWithChildren<{
+  rail?: ReactNode;
+}>;
+
+export function OperationsLayout({ children, rail }: OperationsLayoutProps) {
+  return (
+    <div className="dashboard-shell">
+      <aside className="sidebar">
+        <div>
+          <p className="eyebrow">BSM Ops</p>
+          <h1>Dispatch OS</h1>
+        </div>
+        <nav className="nav-list" aria-label="Primary">
+          {navItems.map((item) => (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              end={item.end}
+              className={({ isActive }) => (isActive ? 'nav-item active' : 'nav-item')}
+            >
+              {item.label}
+            </NavLink>
+          ))}
+        </nav>
+      </aside>
+
+      {children}
+
+      <aside className="rail">
+        {rail ?? (
+          <section className="rail-panel">
+            <p className="eyebrow">Status</p>
+            <h3>Coming soon</h3>
+            <p className="muted-copy">This section is wired into navigation now. The full workflow screen has not been built yet.</p>
+          </section>
+        )}
+      </aside>
+    </div>
+  );
+}
