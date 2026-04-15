@@ -50,6 +50,30 @@ describe('buildApiConfig', () => {
     ).rejects.toThrow(/postgres connection string/i);
   });
 
+  it('allows startup without zoho config', async () => {
+    const config = await buildApiConfig({
+      ...baseEnv,
+      ZOHO_CLIENT_ID: undefined,
+      ZOHO_CLIENT_SECRET: undefined,
+      ZOHO_REFRESH_TOKEN: undefined,
+      ZOHO_ORGANIZATION_ID: undefined,
+      ZOHO_API_BASE_URL: undefined,
+      ZOHO_SYNC_INTERVAL_MINUTES: undefined,
+      ZOHO_ACTIVE_ORDER_STATUSES: undefined
+    });
+
+    expect(config.zoho).toBeUndefined();
+  });
+
+  it('rejects partial zoho config', async () => {
+    await expect(
+      buildApiConfig({
+        ...baseEnv,
+        ZOHO_REFRESH_TOKEN: undefined
+      })
+    ).rejects.toThrow(/Incomplete Zoho configuration/i);
+  });
+
   it('rejects blank zoho active order statuses after trimming', async () => {
     await expect(
       buildApiConfig({

@@ -4,7 +4,7 @@ import type { ZohoSalesOrder } from '../lib/zoho.js';
 const ZOHO_TOKEN_URL = 'https://accounts.zoho.com/oauth/v2/token';
 const SALES_ORDER_PAGE_SIZE = 200;
 
-type ZohoConfig = ApiConfig['zoho'];
+type ZohoConfig = NonNullable<ApiConfig['zoho']>;
 type Fetcher = typeof fetch;
 
 type ZohoTokenResponse = {
