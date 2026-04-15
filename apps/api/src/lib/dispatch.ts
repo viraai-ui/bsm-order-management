@@ -28,6 +28,8 @@ export type MachineUnitApiRecord = {
   videoCount: number;
   requiredVideoCount: number;
   workflowStage: WorkflowStage;
+  dispatchedAt: string | null;
+  dispatchNotes: string | null;
   mediaFiles: MediaApiRecord[];
 };
 

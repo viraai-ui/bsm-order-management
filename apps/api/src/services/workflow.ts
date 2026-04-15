@@ -6,6 +6,8 @@ export type WorkflowCheckInput = {
   imageCount: number;
   videoCount: number;
   requiredVideoCount?: number;
+  workflowStage?: WorkflowStage;
+  dispatchedAt?: string | Date | null;
 };
 
 export type WorkflowCheckResult = {
@@ -15,6 +17,14 @@ export type WorkflowCheckResult = {
 };
 
 export function evaluateWorkflowReadiness(input: WorkflowCheckInput): WorkflowCheckResult {
+  if (input.workflowStage === 'DISPATCHED' || input.dispatchedAt) {
+    return {
+      dispatchReady: false,
+      blockers: [],
+      nextStage: 'DISPATCHED',
+    };
+  }
+
   const blockers: string[] = [];
   const requiredVideoCount = input.requiredVideoCount ?? 2;
 

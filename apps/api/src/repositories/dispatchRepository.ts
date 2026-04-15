@@ -8,6 +8,12 @@ export type UpdateMachineUnitStageInput = {
   workflowStage: WorkflowStage;
 };
 
+export type CompleteMachineUnitDispatchInput = {
+  id: string;
+  dispatchedAt?: Date;
+  dispatchNotes?: string | null;
+};
+
 export type CreateMediaRecordInput = {
   machineUnitId: string;
   kind: MediaKind;
@@ -30,6 +36,7 @@ export interface DispatchRepository {
   generateSerialNumber(id: string, date?: Date): Promise<MachineUnitApiRecord | null>;
   generateQrCode(id: string): Promise<MachineUnitApiRecord | null>;
   updateMachineUnitWorkflowStage(input: UpdateMachineUnitStageInput): Promise<MachineUnitApiRecord | null>;
+  completeMachineUnitDispatch(input: CompleteMachineUnitDispatchInput): Promise<MachineUnitApiRecord | null>;
   getMediaFileById(id: string): Promise<MachineUnitApiRecord['mediaFiles'][number] | null>;
   createMediaRecord(input: CreateMediaRecordInput): Promise<MachineUnitApiRecord | null>;
   deleteMediaRecord(id: string): Promise<MachineUnitApiRecord | null>;
@@ -136,6 +143,10 @@ export const defaultSeedOrders = [
 ] as const;
 
 function toWorkflowStage(status: OrderStatus, machineWorkflowStage: WorkflowStage): string {
+  if (machineWorkflowStage === 'DISPATCHED') {
+    return 'Dispatched';
+  }
+
   if (machineWorkflowStage === 'READY_FOR_DISPATCH' || status === OrderStatus.READY_FOR_DISPATCH) {
     return 'Dispatch ready';
   }
@@ -200,6 +211,8 @@ function mapMachineUnit(machineUnit: PrismaMachineUnitPayload): MachineUnitApiRe
     videoCount,
     requiredVideoCount: machineUnit.requiredVideoCount,
     workflowStage: machineUnit.workflowStage as WorkflowStage,
+    dispatchedAt: machineUnit.dispatchedAt?.toISOString() ?? null,
+    dispatchNotes: machineUnit.dispatchNotes,
     mediaFiles: machineUnit.mediaFiles.map((file) => ({
       id: file.id,
       machineUnitId: file.machineUnitId ?? machineUnit.id,
@@ -238,11 +251,13 @@ function mapZohoStatusToOrderStatus(status: string): OrderStatus {
 
 function machineUnitRetentionScore(machineUnit: PrismaOrderPayload['machineUnits'][number]) {
   const workflowScore =
-    machineUnit.workflowStage === 'READY_FOR_DISPATCH'
-      ? 3
-      : machineUnit.workflowStage === 'MEDIA_UPLOADED'
-        ? 2
-        : 1;
+    machineUnit.workflowStage === 'DISPATCHED'
+      ? 4
+      : machineUnit.workflowStage === 'READY_FOR_DISPATCH'
+        ? 3
+        : machineUnit.workflowStage === 'MEDIA_UPLOADED'
+          ? 2
+          : 1;
   const statusScore =
     machineUnit.status === MachineUnitStatus.READY
       ? 5
@@ -567,7 +582,29 @@ export class PrismaDispatchRepository implements DispatchRepository {
 
     const updated = await this.prismaClient.machineUnit.update({
       where: { id: input.id },
-      data: { workflowStage: input.workflowStage, status: input.workflowStage === 'READY_FOR_DISPATCH' ? MachineUnitStatus.READY : existing.status },
+      data: {
+        workflowStage: input.workflowStage,
+        status: input.workflowStage === 'READY_FOR_DISPATCH' ? MachineUnitStatus.READY : existing.status,
+      },
+      include: { mediaFiles: true, order: true }
+    });
+
+    return mapMachineUnit(updated);
+  }
+
+  async completeMachineUnitDispatch(input: CompleteMachineUnitDispatchInput): Promise<MachineUnitApiRecord | null> {
+    await this.ensureSeedData();
+    const existing = await this.prismaClient.machineUnit.findUnique({ where: { id: input.id } });
+    if (!existing) return null;
+
+    const updated = await this.prismaClient.machineUnit.update({
+      where: { id: input.id },
+      data: {
+        workflowStage: 'DISPATCHED',
+        status: MachineUnitStatus.DISPATCHED,
+        dispatchedAt: input.dispatchedAt ?? existing.dispatchedAt ?? new Date(),
+        dispatchNotes: input.dispatchNotes ?? existing.dispatchNotes,
+      },
       include: { mediaFiles: true, order: true }
     });
 

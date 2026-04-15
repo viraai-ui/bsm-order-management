@@ -219,6 +219,7 @@ function buildDispatchRepository(overrides: Partial<DispatchRepository>): Dispat
     generateSerialNumber: vi.fn().mockResolvedValue(null),
     generateQrCode: vi.fn().mockResolvedValue(null),
     updateMachineUnitWorkflowStage: vi.fn().mockResolvedValue(null),
+    completeMachineUnitDispatch: vi.fn().mockResolvedValue(null),
     getMediaFileById: vi.fn().mockResolvedValue(null),
     createMediaRecord: vi.fn().mockResolvedValue(null),
     deleteMediaRecord: vi.fn().mockResolvedValue(null),

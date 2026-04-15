@@ -34,4 +34,20 @@ describe('workflow readiness', () => {
     expect(result.nextStage).toBe('READY_FOR_DISPATCH');
     expect(result.blockers).toEqual([]);
   });
+
+  it('reports dispatched units as complete without additional blockers', () => {
+    const result = evaluateWorkflowReadiness({
+      serialNumber: '262700042',
+      qrCodeValue: 'qr://262700042',
+      imageCount: 3,
+      videoCount: 2,
+      requiredVideoCount: 2,
+      workflowStage: 'DISPATCHED',
+      dispatchedAt: '2026-04-15T11:30:00.000Z',
+    });
+
+    expect(result.dispatchReady).toBe(false);
+    expect(result.nextStage).toBe('DISPATCHED');
+    expect(result.blockers).toEqual([]);
+  });
 });

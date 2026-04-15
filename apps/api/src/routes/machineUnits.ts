@@ -20,7 +20,9 @@ export function createMachineUnitsRouter(
       qrCodeValue: machineUnit.qrCodeValue,
       imageCount: machineUnit.imageCount,
       videoCount: machineUnit.videoCount,
-      requiredVideoCount: machineUnit.requiredVideoCount
+      requiredVideoCount: machineUnit.requiredVideoCount,
+      workflowStage: machineUnit.workflowStage,
+      dispatchedAt: machineUnit.dispatchedAt,
     });
 
     return {
@@ -99,6 +101,44 @@ export function createMachineUnitsRouter(
     }
   });
 
+  router.post('/:id/dispatch', async (request, response) => {
+    const machineUnit = await dispatchRepository.getMachineUnitById(request.params.id);
+
+    if (!machineUnit) {
+      response.status(404).json({ error: 'Machine unit not found' });
+      return;
+    }
+
+    if (machineUnit.workflowStage !== 'DISPATCHED') {
+      const workflow = evaluateWorkflowReadiness({
+        serialNumber: machineUnit.serialNumber,
+        qrCodeValue: machineUnit.qrCodeValue,
+        imageCount: machineUnit.imageCount,
+        videoCount: machineUnit.videoCount,
+        requiredVideoCount: machineUnit.requiredVideoCount,
+      });
+
+      if (!workflow.dispatchReady) {
+        response.status(409).json({
+          error: 'Machine unit is not ready for dispatch',
+          blockers: workflow.blockers,
+        });
+        return;
+      }
+    }
+
+    const rawNotes = request.body?.dispatchNotes;
+    const dispatchNotes = typeof rawNotes === 'string' ? rawNotes.trim() || null : null;
+    const updated = machineUnit.workflowStage === 'DISPATCHED'
+      ? machineUnit
+      : await dispatchRepository.completeMachineUnitDispatch({
+          id: request.params.id,
+          dispatchNotes,
+        });
+
+    response.status(200).json(buildResponse(updated ?? machineUnit));
+  });
+
   router.patch('/:id', async (request, response) => {
     const machineUnit = await dispatchRepository.getMachineUnitById(request.params.id);
 
@@ -115,7 +155,7 @@ export function createMachineUnitsRouter(
         qrCodeValue: machineUnit.qrCodeValue,
         imageCount: machineUnit.imageCount,
         videoCount: machineUnit.videoCount,
-        requiredVideoCount: machineUnit.requiredVideoCount
+        requiredVideoCount: machineUnit.requiredVideoCount,
       });
 
       if (!workflow.dispatchReady) {

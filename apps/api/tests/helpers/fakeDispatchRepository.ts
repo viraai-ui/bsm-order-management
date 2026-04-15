@@ -47,6 +47,8 @@ const machineUnits = new Map<string, MachineUnitApiRecord>([
       videoCount: 0,
       requiredVideoCount: 2,
       workflowStage: 'PACKING_TESTING',
+      dispatchedAt: null,
+      dispatchNotes: null,
       mediaFiles: buildMediaFiles('MU-24018-1', 4, 0),
     },
   ],
@@ -66,6 +68,8 @@ const machineUnits = new Map<string, MachineUnitApiRecord>([
       videoCount: 2,
       requiredVideoCount: 2,
       workflowStage: 'READY_FOR_DISPATCH',
+      dispatchedAt: null,
+      dispatchNotes: null,
       mediaFiles: buildMediaFiles('MU-24021-1', 6, 2),
     },
   ],
@@ -85,6 +89,8 @@ const machineUnits = new Map<string, MachineUnitApiRecord>([
       videoCount: 2,
       requiredVideoCount: 2,
       workflowStage: 'MEDIA_UPLOADED',
+      dispatchedAt: null,
+      dispatchNotes: null,
       mediaFiles: buildMediaFiles('MU-24025-1', 5, 2),
     },
   ],
@@ -104,6 +110,8 @@ const machineUnits = new Map<string, MachineUnitApiRecord>([
       videoCount: 1,
       requiredVideoCount: 2,
       workflowStage: 'MEDIA_UPLOADED',
+      dispatchedAt: null,
+      dispatchNotes: null,
       mediaFiles: buildMediaFiles('MU-24029-1', 3, 1),
     },
   ],
@@ -126,7 +134,13 @@ export function createFakeDispatchRepository(): DispatchRepository {
     customerName: machineUnit.customerName,
     deliveryDate: machineUnit.scheduledFor,
     destination: machineUnit.destination,
-    status: machineUnit.workflowStage === 'READY_FOR_DISPATCH' ? 'Dispatch ready' : machineUnit.videoCount >= machineUnit.requiredVideoCount ? 'Testing complete' : 'Awaiting media',
+    status: machineUnit.workflowStage === 'DISPATCHED'
+      ? 'Dispatched'
+      : machineUnit.workflowStage === 'READY_FOR_DISPATCH'
+        ? 'Dispatch ready'
+        : machineUnit.videoCount >= machineUnit.requiredVideoCount
+          ? 'Testing complete'
+          : 'Awaiting media',
     machineUnits: [
       {
         id: machineUnit.id,
@@ -189,6 +203,14 @@ export function createFakeDispatchRepository(): DispatchRepository {
       const machineUnit = data.get(id);
       if (!machineUnit) return null;
       machineUnit.workflowStage = workflowStage;
+      return cloneMachineUnit(machineUnit);
+    },
+    async completeMachineUnitDispatch({ id, dispatchedAt = new Date('2026-04-15T11:30:00.000Z'), dispatchNotes = null }) {
+      const machineUnit = data.get(id);
+      if (!machineUnit) return null;
+      machineUnit.workflowStage = 'DISPATCHED';
+      machineUnit.dispatchedAt = dispatchedAt.toISOString();
+      machineUnit.dispatchNotes = dispatchNotes;
       return cloneMachineUnit(machineUnit);
     },
     async getMediaFileById(id) {
