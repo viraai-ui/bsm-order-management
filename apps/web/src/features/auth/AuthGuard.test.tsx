@@ -1,11 +1,11 @@
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { AuthGuard } from './AuthGuard';
-import { signOutDemoUser } from './auth';
+import { clearAuthenticated } from './auth';
 
 describe('AuthGuard', () => {
   beforeEach(() => {
-    signOutDemoUser();
+    clearAuthenticated();
   });
 
   it('redirects unauthenticated users to login', () => {

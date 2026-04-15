@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { OperationsLayout } from '../../components/OperationsLayout';
 import { OrderBucket } from '../../components/OrderBucket';
 import { SyncButton } from '../../components/SyncButton';
-import { fetchDashboardOrders, groupOrdersByBucket, type DispatchOrder } from '../../lib/apiClient';
-import { signOutDemoUser } from '../auth/auth';
+import { fetchDashboardOrders, groupOrdersByBucket, logout, type DispatchOrder } from '../../lib/apiClient';
+import { clearAuthenticated } from '../auth/auth';
 
 type StageFilter = 'all' | 'blocked' | 'ready' | 'dispatched';
 
@@ -16,6 +17,15 @@ export function DashboardPage() {
   const [error, setError] = useState<string | null>(null);
   const [stageFilter, setStageFilter] = useState<StageFilter>('all');
   const [activeOnly, setActiveOnly] = useState(true);
+
+  async function handleSignOut() {
+    try {
+      await logout();
+    } finally {
+      clearAuthenticated();
+      window.location.assign('/login');
+    }
+  }
 
   const loadOrders = useCallback(async () => {
     setLoading(true);
@@ -64,21 +74,28 @@ export function DashboardPage() {
   const blockedOrders = activeOrders.filter((order) => isBlocked(order));
 
   return (
-    <div className="dashboard-shell">
-      <aside className="sidebar">
-        <div>
-          <p className="eyebrow">BSM Ops</p>
-          <h1>Dispatch OS</h1>
-        </div>
-        <nav className="nav-list" aria-label="Primary">
-          {['Dashboard', 'Orders', 'Machine Units', 'Dispatch', 'Media', 'Users', 'Sync Logs'].map((item) => (
-            <button key={item} className={item === 'Dashboard' ? 'nav-item active' : 'nav-item'} type="button">
-              {item}
-            </button>
-          ))}
-        </nav>
-      </aside>
-
+    <OperationsLayout
+      rail={(
+        <>
+          <section className="rail-panel">
+            <p className="eyebrow">Alerts</p>
+            <ul>
+              <li>2 orders missing mandatory dispatch video</li>
+              <li>1 QR serial batch awaiting approval</li>
+              <li>Zoho token scope upgrade still pending</li>
+            </ul>
+          </section>
+          <section className="rail-panel">
+            <p className="eyebrow">Recent sync activity</p>
+            <ul>
+              <li>08:10, Inventory sync complete</li>
+              <li>08:07, 14 machine units updated</li>
+              <li>07:58, 3 dispatch photos uploaded</li>
+            </ul>
+          </section>
+        </>
+      )}
+    >
       <main className="main-panel">
         <header className="topbar">
           <div>
@@ -90,7 +107,7 @@ export function DashboardPage() {
               {loading ? 'Refreshing…' : 'Manual refresh'}
             </button>
             <SyncButton lastSyncedAt="08:10 UTC" pendingJobs={4} />
-            <button className="user-chip" type="button" onClick={signOutDemoUser}>TT</button>
+            <button className="user-chip" type="button" onClick={() => void handleSignOut()}>TT</button>
           </div>
         </header>
 
@@ -182,25 +199,6 @@ export function DashboardPage() {
           </section>
         ) : null}
       </main>
-
-      <aside className="rail">
-        <section className="rail-panel">
-          <p className="eyebrow">Alerts</p>
-          <ul>
-            <li>{blockedOrders.length} active units still blocked before dispatch</li>
-            <li>{readyOrders.length} units are ready for handover</li>
-            <li>{activeOnly ? 'Dispatched units are hidden from the main queue' : 'Historical dispatched units are visible right now'}</li>
-          </ul>
-        </section>
-        <section className="rail-panel">
-          <p className="eyebrow">Recent sync activity</p>
-          <ul>
-            <li>08:10, Inventory sync complete</li>
-            <li>08:07, 14 machine units updated</li>
-            <li>07:58, 3 dispatch photos uploaded</li>
-          </ul>
-        </section>
-      </aside>
-    </div>
+    </OperationsLayout>
   );
 }

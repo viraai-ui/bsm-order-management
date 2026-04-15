@@ -1,16 +1,33 @@
-import { FormEvent } from 'react';
+import { FormEvent, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { signInDemoUser } from './auth';
+import { login } from '../../lib/apiClient';
+import { markAuthenticated } from './auth';
 
 export function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const redirectTo = (location.state as { from?: string } | null)?.from ?? '/dashboard';
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    signInDemoUser();
-    navigate(redirectTo, { replace: true });
+    setSubmitting(true);
+    setError(null);
+
+    const formData = new FormData(event.currentTarget);
+    const email = String(formData.get('email') ?? '').trim();
+    const password = String(formData.get('password') ?? '');
+
+    try {
+      await login({ email, password });
+      markAuthenticated();
+      navigate(redirectTo, { replace: true });
+    } catch (submitError) {
+      setError(submitError instanceof Error ? submitError.message : 'Sign-in failed');
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
@@ -36,14 +53,15 @@ export function LoginPage() {
 
         <form className="login-form" onSubmit={handleSubmit}>
           <label>
-            <span>Username</span>
-            <input name="username" type="text" placeholder="dispatch.operator" required />
+            <span>Email</span>
+            <input name="email" type="email" placeholder="admin@bsm.local" defaultValue="admin@bsm.local" required />
           </label>
           <label>
             <span>Password</span>
-            <input name="password" type="password" placeholder="••••••••" required />
+            <input name="password" type="password" placeholder="••••••••" defaultValue="ChangeMe123!" required />
           </label>
-          <button type="submit">Enter dashboard</button>
+          {error ? <p className="form-error">{error}</p> : null}
+          <button type="submit" disabled={submitting}>{submitting ? 'Signing in…' : 'Enter dashboard'}</button>
         </form>
       </section>
     </div>

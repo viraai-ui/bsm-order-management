@@ -1,14 +1,14 @@
-const TOKEN_KEY = 'bsm.session.demo';
+const TOKEN_KEY = 'bsm.session.authenticated';
 
 export function isAuthenticated(): boolean {
   if (typeof window === 'undefined') return false;
   return window.localStorage.getItem(TOKEN_KEY) === 'authenticated';
 }
 
-export function signInDemoUser() {
+export function markAuthenticated() {
   window.localStorage.setItem(TOKEN_KEY, 'authenticated');
 }
 
-export function signOutDemoUser() {
+export function clearAuthenticated() {
   window.localStorage.removeItem(TOKEN_KEY);
 }

@@ -78,6 +78,10 @@ textarea { resize: vertical; }
   color: var(--text);
 }
 .login-form input:focus { outline: none; border-bottom-color: var(--cyan-bright); }
+.form-error {
+  margin: 0;
+  color: var(--danger);
+}
 .login-form button, .primary-button, .ghost-button, .user-chip, .nav-item, .filter-chip {
   border: 0;
   border-radius: 6px;
@@ -120,10 +124,12 @@ textarea { resize: vertical; }
 .sidebar h1, .topbar h2 { margin: 0.25rem 0 0; }
 .nav-list { display: grid; gap: 0.5rem; }
 .nav-item {
+  display: block;
   text-align: left;
   padding: 0.85rem 1rem;
   background: transparent;
   color: var(--muted);
+  text-decoration: none;
 }
 .nav-item.active, .nav-item:hover { background: var(--surface); color: var(--text); }
 .main-panel { display: grid; gap: 1.5rem; }

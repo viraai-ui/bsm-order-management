@@ -86,7 +86,18 @@ type WorkflowApiItem = {
   nextStage: 'PACKING_TESTING' | 'MEDIA_UPLOADED' | 'READY_FOR_DISPATCH' | 'DISPATCHED';
 };
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:3001';
+function resolveApiBaseUrl() {
+  const configured = import.meta.env.VITE_API_BASE_URL;
+  if (configured) return configured;
+
+  if (import.meta.env.PROD) {
+    return 'https://pure-gentleness-production.up.railway.app';
+  }
+
+  return 'http://localhost:3001';
+}
+
+const API_BASE_URL = resolveApiBaseUrl();
 
 export class ApiError extends Error {
   status: number;
@@ -223,6 +234,26 @@ async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
   }
 
   return response.json() as Promise<T>;
+}
+
+export async function login(input: { email: string; password: string }) {
+  const payload = await fetchJson<{ user: { id: string; email: string; name: string; role: string } }>('/auth/login', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+
+  return payload.user;
+}
+
+export async function fetchCurrentUser() {
+  const payload = await fetchJson<{ user: { id: string; email: string; name: string; role: string } }>('/auth/me');
+  return payload.user;
+}
+
+export async function logout() {
+  await fetchJson<{ success: boolean }>('/auth/logout', {
+    method: 'POST',
+  });
 }
 
 export async function fetchDashboardOrders(): Promise<DispatchOrder[]> {
