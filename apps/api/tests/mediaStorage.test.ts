@@ -1,5 +1,10 @@
+import { access, mkdtemp, readFile, rm } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import { buildConfigFromEnv } from '../src/app.js';
-import { parseMediaStorageConfig } from '../src/lib/mediaStorage.js';
+import { createMediaStorage, parseMediaStorageConfig } from '../src/lib/mediaStorage.js';
+import { createLocalMediaStorage } from '../src/services/localMediaStorage.js';
+import { createS3MediaStorage } from '../src/services/s3MediaStorage.js';
 
 describe('media storage config', () => {
   const baseEnv = {
@@ -30,6 +35,22 @@ describe('media storage config', () => {
       keyPrefix: 'machine-unit-media',
       localBasePath: 'uploads/media',
       publicBaseUrl: null
+    });
+  });
+
+  it('creates a local storage provider from config', () => {
+    const storage = createMediaStorage({
+      provider: 'local',
+      maxUploadSizeBytes: 25 * 1024 * 1024,
+      keyPrefix: 'machine-unit-media',
+      localBasePath: 'uploads/media',
+      publicBaseUrl: null,
+    });
+
+    expect(storage).toMatchObject({
+      saveUpload: expect.any(Function),
+      deleteObject: expect.any(Function),
+      buildPublicUrl: expect.any(Function),
     });
   });
 
@@ -69,5 +90,88 @@ describe('media storage config', () => {
         MEDIA_STORAGE_PROVIDER: 's3'
       })
     ).toThrow(/MEDIA_STORAGE_S3_BUCKET/i);
+  });
+});
+
+describe('local media storage', () => {
+  const directories: string[] = [];
+
+  afterEach(async () => {
+    await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
+  });
+
+  it('saves uploads to disk and deletes them again', async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), 'bsm-media-'));
+    directories.push(tempDir);
+
+    const storage = createLocalMediaStorage({
+      provider: 'local',
+      maxUploadSizeBytes: 5 * 1024 * 1024,
+      keyPrefix: 'dispatch-proof',
+      localBasePath: tempDir,
+      publicBaseUrl: 'https://cdn.example.com/media',
+    });
+
+    const saved = await storage.saveUpload({
+      machineUnitId: 'MU-LOCAL-1',
+      mediaKind: 'IMAGE',
+      originalFileName: 'proof photo.jpg',
+      mimeType: 'image/jpeg',
+      buffer: Buffer.from('proof-image'),
+    });
+
+    const persistedPath = path.resolve(tempDir, saved.storagePath);
+    expect(saved.storagePath).toContain('dispatch-proof/MU-LOCAL-1/image/');
+    expect(saved.publicUrl).toBe(`https://cdn.example.com/media/${saved.storagePath}`);
+    expect(saved.sizeBytes).toBe(Buffer.byteLength('proof-image'));
+    expect(await readFile(persistedPath, 'utf8')).toBe('proof-image');
+
+    await storage.deleteObject(saved.storagePath);
+
+    await expect(access(persistedPath)).rejects.toThrow();
+  });
+});
+
+describe('s3 media storage', () => {
+  it('uploads and deletes objects through the configured s3 client', async () => {
+    const send = vi.fn().mockResolvedValue({});
+    const storage = createS3MediaStorage({
+      provider: 's3',
+      maxUploadSizeBytes: 10 * 1024 * 1024,
+      keyPrefix: 'dispatch-proof',
+      publicBaseUrl: 'https://cdn.example.com/bsm',
+      bucket: 'bsm-media',
+      region: 'auto',
+      endpoint: 'https://account-id.r2.cloudflarestorage.com',
+      accessKeyId: 'access-key',
+      secretAccessKey: 'secret-key',
+      forcePathStyle: true,
+    }, { send } as never);
+
+    const saved = await storage.saveUpload({
+      machineUnitId: 'MU-S3-1',
+      mediaKind: 'VIDEO',
+      originalFileName: 'factory run.mp4',
+      mimeType: 'video/mp4',
+      buffer: Buffer.from('video-bytes'),
+    });
+
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send.mock.calls[0]?.[0].input).toMatchObject({
+      Bucket: 'bsm-media',
+      Key: saved.storagePath,
+      ContentType: 'video/mp4',
+      Body: Buffer.from('video-bytes'),
+    });
+    expect(saved.publicUrl).toBe(`https://cdn.example.com/bsm/${saved.storagePath}`);
+    expect(saved.sizeBytes).toBe(Buffer.byteLength('video-bytes'));
+
+    await storage.deleteObject(saved.storagePath);
+
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(send.mock.calls[1]?.[0].input).toMatchObject({
+      Bucket: 'bsm-media',
+      Key: saved.storagePath,
+    });
   });
 });

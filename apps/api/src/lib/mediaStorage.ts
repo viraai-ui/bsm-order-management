@@ -1,5 +1,7 @@
 import { z } from 'zod';
 import type { MediaKind } from './dispatch.js';
+import { createLocalMediaStorage } from '../services/localMediaStorage.js';
+import { createS3MediaStorage } from '../services/s3MediaStorage.js';
 
 const uploadSizeSchema = z.coerce.number().int().positive().default(25 * 1024 * 1024);
 const keyPrefixSchema = z.string().trim().default('machine-unit-media').transform((value) => value.replace(/^\/+|\/+$/g, ''));
@@ -63,6 +65,12 @@ export interface MediaStorage {
   saveUpload(file: SaveUploadInput): Promise<SaveUploadResult>;
   deleteObject(path: string): Promise<void>;
   buildPublicUrl(path: string): string | null;
+}
+
+export function createMediaStorage(config: MediaStorageConfig): MediaStorage {
+  return config.provider === 'local'
+    ? createLocalMediaStorage(config)
+    : createS3MediaStorage(config);
 }
 
 export function parseMediaStorageConfig(env: NodeJS.ProcessEnv = process.env): MediaStorageConfig {
