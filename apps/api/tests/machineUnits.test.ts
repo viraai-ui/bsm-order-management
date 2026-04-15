@@ -1,6 +1,27 @@
 import request from 'supertest';
 import { createApp } from '../src/app.js';
+import type { MediaStorage } from '../src/lib/mediaStorage.js';
 import { createFakeDispatchRepository } from './helpers/fakeDispatchRepository.js';
+
+function createFakeMediaStorage(): MediaStorage {
+  return {
+    async saveUpload(file) {
+      return {
+        storagePath: `uploads/${file.machineUnitId}/${file.originalFileName}`,
+        publicUrl: `https://cdn.example.com/${file.machineUnitId}/${file.originalFileName}`,
+        originalFileName: file.originalFileName,
+        mimeType: file.mimeType,
+        sizeBytes: file.buffer.byteLength,
+      };
+    },
+    async deleteObject() {
+      return;
+    },
+    buildPublicUrl(storagePath) {
+      return `https://cdn.example.com/${storagePath}`;
+    },
+  };
+}
 
 describe('machine unit routes', () => {
   it('generates a qr code after serial generation', async () => {
@@ -46,12 +67,19 @@ describe('machine unit routes', () => {
     expect(response.body.data.workflowStage).toBe('READY_FOR_DISPATCH');
   });
 
-  it('adds media records to a machine unit and updates counts', async () => {
-    const app = createApp({ dispatchRepository: createFakeDispatchRepository() });
+  it('adds uploaded media records to a machine unit and updates counts', async () => {
+    const app = createApp({
+      dispatchRepository: createFakeDispatchRepository(),
+      mediaStorageService: createFakeMediaStorage(),
+    });
 
     const response = await request(app)
-      .post('/machine-units/MU-24018-1/media')
-      .send({ kind: 'VIDEO', fileName: 'test-run.mp4', mimeType: 'video/mp4' });
+      .post('/machine-units/MU-24018-1/media/upload')
+      .field('kind', 'VIDEO')
+      .attach('file', Buffer.from('video-proof'), {
+        filename: 'test-run.mp4',
+        contentType: 'video/mp4',
+      });
 
     expect(response.status).toBe(201);
     expect(response.body.data.videoCount).toBe(1);
@@ -61,17 +89,26 @@ describe('machine unit routes', () => {
           kind: 'VIDEO',
           fileName: 'test-run.mp4',
           mimeType: 'video/mp4',
+          publicUrl: 'https://cdn.example.com/MU-24018-1/test-run.mp4',
+          sizeBytes: Buffer.byteLength('video-proof'),
         }),
       ]),
     );
   });
 
   it('deletes media records from a machine unit and updates counts', async () => {
-    const app = createApp({ dispatchRepository: createFakeDispatchRepository() });
+    const app = createApp({
+      dispatchRepository: createFakeDispatchRepository(),
+      mediaStorageService: createFakeMediaStorage(),
+    });
 
     const createResponse = await request(app)
-      .post('/machine-units/MU-24018-1/media')
-      .send({ kind: 'IMAGE', fileName: 'fresh-photo.jpg', mimeType: 'image/jpeg' });
+      .post('/machine-units/MU-24018-1/media/upload')
+      .field('kind', 'IMAGE')
+      .attach('file', Buffer.from('fresh-photo'), {
+        filename: 'fresh-photo.jpg',
+        contentType: 'image/jpeg',
+      });
 
     const mediaId = createResponse.body.data.mediaFiles.find((file: { fileName: string }) => file.fileName === 'fresh-photo.jpg')?.id;
 

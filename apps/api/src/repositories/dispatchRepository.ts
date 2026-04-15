@@ -13,6 +13,9 @@ export type CreateMediaRecordInput = {
   kind: MediaKind;
   fileName: string;
   mimeType?: string | null;
+  storagePath: string;
+  publicUrl?: string | null;
+  sizeBytes?: number | null;
 };
 
 export type ReconcileZohoOrderResult = {
@@ -27,6 +30,7 @@ export interface DispatchRepository {
   generateSerialNumber(id: string, date?: Date): Promise<MachineUnitApiRecord | null>;
   generateQrCode(id: string): Promise<MachineUnitApiRecord | null>;
   updateMachineUnitWorkflowStage(input: UpdateMachineUnitStageInput): Promise<MachineUnitApiRecord | null>;
+  getMediaFileById(id: string): Promise<MachineUnitApiRecord['mediaFiles'][number] | null>;
   createMediaRecord(input: CreateMediaRecordInput): Promise<MachineUnitApiRecord | null>;
   deleteMediaRecord(id: string): Promise<MachineUnitApiRecord | null>;
 }
@@ -203,6 +207,8 @@ function mapMachineUnit(machineUnit: PrismaMachineUnitPayload): MachineUnitApiRe
       fileName: file.fileName,
       storagePath: file.storagePath,
       mimeType: file.mimeType,
+      publicUrl: file.publicUrl,
+      sizeBytes: file.sizeBytes,
       createdAt: file.createdAt.toISOString()
     }))
   };
@@ -568,6 +574,27 @@ export class PrismaDispatchRepository implements DispatchRepository {
     return mapMachineUnit(updated);
   }
 
+  async getMediaFileById(id: string): Promise<MachineUnitApiRecord['mediaFiles'][number] | null> {
+    await this.ensureSeedData();
+    const mediaFile = await this.prismaClient.mediaFile.findUnique({ where: { id } });
+
+    if (!mediaFile?.machineUnitId) {
+      return null;
+    }
+
+    return {
+      id: mediaFile.id,
+      machineUnitId: mediaFile.machineUnitId,
+      kind: mediaFile.kind,
+      fileName: mediaFile.fileName,
+      storagePath: mediaFile.storagePath,
+      mimeType: mediaFile.mimeType,
+      publicUrl: mediaFile.publicUrl,
+      sizeBytes: mediaFile.sizeBytes,
+      createdAt: mediaFile.createdAt.toISOString(),
+    };
+  }
+
   async createMediaRecord(input: CreateMediaRecordInput): Promise<MachineUnitApiRecord | null> {
     await this.ensureSeedData();
     const machineUnit = await this.prismaClient.machineUnit.findUnique({ where: { id: input.machineUnitId } });
@@ -579,8 +606,10 @@ export class PrismaDispatchRepository implements DispatchRepository {
         orderId: machineUnit.orderId,
         kind: input.kind,
         fileName: input.fileName,
-        storagePath: `uploads/${input.machineUnitId}/${Date.now()}-${input.fileName}`,
-        mimeType: input.mimeType ?? null
+        storagePath: input.storagePath,
+        mimeType: input.mimeType ?? null,
+        publicUrl: input.publicUrl ?? null,
+        sizeBytes: input.sizeBytes ?? null,
       }
     });
 

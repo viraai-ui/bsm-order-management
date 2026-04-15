@@ -1,4 +1,4 @@
-export type WorkflowStage = 'PACKING_TESTING' | 'MEDIA_UPLOADED' | 'READY_FOR_DISPATCH';
+export type WorkflowStage = 'PACKING_TESTING' | 'MEDIA_UPLOADED' | 'READY_FOR_DISPATCH' | 'DISPATCHED';
 
 export type MediaKind = 'IMAGE' | 'VIDEO' | 'DOCUMENT';
 
@@ -9,6 +9,8 @@ export type MediaApiRecord = {
   fileName: string;
   storagePath: string;
   mimeType: string | null;
+  publicUrl: string | null;
+  sizeBytes: number | null;
   createdAt: string;
 };
 

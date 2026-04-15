@@ -1,17 +1,18 @@
 import { Router } from 'express';
-import { z } from 'zod';
 import type { DispatchRepository } from '../repositories/dispatchRepository.js';
 import type { WorkflowStage } from '../lib/dispatch.js';
+import type { MediaStorage } from '../lib/mediaStorage.js';
 import { evaluateWorkflowReadiness } from '../services/workflow.js';
+import { createMediaUploadMiddleware, MediaUploadError, MediaUploadService } from '../services/mediaUpload.js';
 
-const createMediaSchema = z.object({
-  kind: z.enum(['IMAGE', 'VIDEO', 'DOCUMENT']),
-  fileName: z.string().min(1),
-  mimeType: z.string().min(1).optional(),
-});
-
-export function createMachineUnitsRouter(dispatchRepository: DispatchRepository) {
+export function createMachineUnitsRouter(
+  dispatchRepository: DispatchRepository,
+  mediaStorage: MediaStorage,
+  maxUploadSizeBytes = 25 * 1024 * 1024,
+) {
   const router = Router();
+  const uploadMiddleware = createMediaUploadMiddleware(maxUploadSizeBytes);
+  const mediaUploadService = new MediaUploadService(dispatchRepository, mediaStorage);
 
   function buildResponse(machineUnit: Awaited<ReturnType<DispatchRepository['getMachineUnitById']>> extends infer T ? NonNullable<T> : never) {
     const workflow = evaluateWorkflowReadiness({
@@ -67,27 +68,35 @@ export function createMachineUnitsRouter(dispatchRepository: DispatchRepository)
     response.status(200).json(buildResponse(machineUnit ?? existing));
   });
 
-  router.post('/:id/media', async (request, response) => {
-    const parsed = createMediaSchema.safeParse(request.body);
+  router.post('/:id/media/upload', uploadMiddleware, async (request, response, next) => {
+    try {
+      const rawKind = request.body?.kind;
+      const kind = typeof rawKind === 'string'
+        ? rawKind
+        : Array.isArray(rawKind)
+          ? String(rawKind[0] ?? '')
+          : '';
 
-    if (!parsed.success) {
-      response.status(400).json({ error: 'Invalid media payload' });
-      return;
+      const machineUnit = await mediaUploadService.uploadMachineUnitMedia({
+        machineUnitId: String(request.params.id),
+        kind,
+        file: request.file,
+      });
+
+      if (!machineUnit) {
+        response.status(404).json({ error: 'Machine unit not found' });
+        return;
+      }
+
+      response.status(201).json(buildResponse(machineUnit));
+    } catch (error) {
+      if (error instanceof MediaUploadError) {
+        response.status(error.statusCode).json({ error: error.message });
+        return;
+      }
+
+      next(error);
     }
-
-    const machineUnit = await dispatchRepository.createMediaRecord({
-      machineUnitId: request.params.id,
-      kind: parsed.data.kind,
-      fileName: parsed.data.fileName,
-      mimeType: parsed.data.mimeType,
-    });
-
-    if (!machineUnit) {
-      response.status(404).json({ error: 'Machine unit not found' });
-      return;
-    }
-
-    response.status(201).json(buildResponse(machineUnit));
   });
 
   router.patch('/:id', async (request, response) => {

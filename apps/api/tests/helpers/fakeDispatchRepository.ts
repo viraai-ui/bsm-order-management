@@ -12,6 +12,8 @@ function buildMediaFiles(machineUnitId: string, images: number, videos: number) 
       fileName: `${machineUnitId}-photo-${index + 1}.jpg`,
       storagePath: `seed/${machineUnitId}/photo-${index + 1}.jpg`,
       mimeType: 'image/jpeg',
+      publicUrl: null,
+      sizeBytes: 1024,
       createdAt: new Date(Date.UTC(2026, 3, 13, 8, index, 0)).toISOString(),
     })),
     ...Array.from({ length: videos }, (_, index) => ({
@@ -21,6 +23,8 @@ function buildMediaFiles(machineUnitId: string, images: number, videos: number) 
       fileName: `${machineUnitId}-video-${index + 1}.mp4`,
       storagePath: `seed/${machineUnitId}/video-${index + 1}.mp4`,
       mimeType: 'video/mp4',
+      publicUrl: null,
+      sizeBytes: 4096,
       createdAt: new Date(Date.UTC(2026, 3, 13, 9, index, 0)).toISOString(),
     })),
   ];
@@ -187,6 +191,16 @@ export function createFakeDispatchRepository(): DispatchRepository {
       machineUnit.workflowStage = workflowStage;
       return cloneMachineUnit(machineUnit);
     },
+    async getMediaFileById(id) {
+      for (const machineUnit of data.values()) {
+        const mediaFile = machineUnit.mediaFiles.find((file) => file.id === id);
+        if (mediaFile) {
+          return { ...mediaFile };
+        }
+      }
+
+      return null;
+    },
     async createMediaRecord(input: CreateMediaRecordInput) {
       const machineUnit = data.get(input.machineUnitId);
       if (!machineUnit) return null;
@@ -196,8 +210,10 @@ export function createFakeDispatchRepository(): DispatchRepository {
         machineUnitId: input.machineUnitId,
         kind: input.kind,
         fileName: input.fileName,
-        storagePath: `uploads/${input.machineUnitId}/${input.fileName}`,
+        storagePath: input.storagePath,
         mimeType: input.mimeType ?? null,
+        publicUrl: input.publicUrl ?? null,
+        sizeBytes: input.sizeBytes ?? null,
         createdAt: new Date('2026-04-13T10:54:00.000Z').toISOString(),
       };
 

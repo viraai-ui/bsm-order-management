@@ -3,12 +3,14 @@ import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import express from 'express';
 import helmet from 'helmet';
+import multer from 'multer';
 import { createAuthRouter } from './routes/auth.js';
 import { createMachineUnitsRouter } from './routes/machineUnits.js';
 import { createMediaRouter } from './routes/media.js';
 import { createOrdersRouter } from './routes/orders.js';
 import { AuthService, type AuthConfig } from './lib/auth.js';
 import { buildApiConfig, type ApiConfig } from './lib/env.js';
+import { createMediaStorage, parseMediaStorageConfig, type MediaStorage } from './lib/mediaStorage.js';
 import { prisma } from './lib/prisma.js';
 import { PrismaDispatchRepository } from './repositories/dispatchRepository.js';
 import { createZohoClient } from './services/zohoClient.js';
@@ -18,6 +20,7 @@ export type AppConfig = ApiConfig;
 
 type CreateAppOverrides = Partial<AppConfig> & {
   zohoSyncService?: ZohoSyncService;
+  mediaStorageService?: MediaStorage;
 };
 
 export async function buildConfigFromEnv(env: NodeJS.ProcessEnv = process.env): Promise<AppConfig> {
@@ -39,6 +42,8 @@ export function createApp(overrides?: CreateAppOverrides) {
   const app = express();
   const authService = new AuthService(authConfig);
   const dispatchRepository = overrides?.dispatchRepository ?? new PrismaDispatchRepository(prisma);
+  const mediaStorage = overrides?.mediaStorageService
+    ?? createMediaStorage(overrides?.mediaStorage ?? parseMediaStorageConfig(process.env));
   const zohoSyncService = overrides?.zohoSyncService ?? (overrides?.zoho
     ? createZohoSyncService({
         dispatchRepository,
@@ -78,10 +83,19 @@ export function createApp(overrides?: CreateAppOverrides) {
 
   app.use('/auth', createAuthRouter(authService));
   app.use('/orders', createOrdersRouter(dispatchRepository, zohoSyncService));
-  app.use('/machine-units', createMachineUnitsRouter(dispatchRepository));
-  app.use('/media', createMediaRouter(dispatchRepository));
+  app.use('/machine-units', createMachineUnitsRouter(dispatchRepository, mediaStorage, overrides?.mediaStorage?.maxUploadSizeBytes));
+  app.use('/media', createMediaRouter(dispatchRepository, mediaStorage));
 
   app.use((error: unknown, _request: express.Request, response: express.Response, _next: express.NextFunction) => {
+    if (error instanceof multer.MulterError) {
+      response.status(error.code === 'LIMIT_FILE_SIZE' ? 413 : 400).json({
+        error: error.code === 'LIMIT_FILE_SIZE'
+          ? 'Uploaded file exceeds the maximum allowed size'
+          : 'Invalid multipart upload payload',
+      });
+      return;
+    }
+
     console.error(error);
     response.status(500).json({ error: 'Internal server error' });
   });
