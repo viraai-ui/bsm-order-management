@@ -136,6 +136,45 @@ describe('createZohoClient', () => {
     expect(String(calls[0]?.input)).toBe('https://accounts.zoho.in/oauth/v2/token');
   });
 
+  it('normalizes bare Zoho API hosts to the inventory base path', async () => {
+    const calls: FetchCall[] = [];
+    const fetcher: typeof fetch = async (input, init) => {
+      calls.push({ input, init });
+
+      const url = String(input);
+
+      if (url === 'https://accounts.zoho.in/oauth/v2/token') {
+        return new Response(JSON.stringify({ access_token: 'fresh-access-token' }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
+      if (url === 'https://www.zohoapis.in/inventory/v1/salesorders?organization_id=1234567890&page=1&per_page=200') {
+        return new Response(JSON.stringify({ salesorders: [], page_context: { has_more_page: false } }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
+      throw new Error(`Unexpected fetch: ${url}`);
+    };
+
+    const client = createZohoClient(
+      {
+        ...config,
+        apiBaseUrl: 'https://www.zohoapis.in'
+      },
+      fetcher
+    );
+
+    await expect(client.fetchSalesOrders()).resolves.toEqual([]);
+    expect(String(calls[0]?.input)).toBe('https://accounts.zoho.in/oauth/v2/token');
+    expect(String(calls[1]?.input)).toBe(
+      'https://www.zohoapis.in/inventory/v1/salesorders?organization_id=1234567890&page=1&per_page=200'
+    );
+  });
+
   it('throws when the access token refresh fails', async () => {
     const fetcher: typeof fetch = async () =>
       new Response(JSON.stringify({ error: 'invalid_client' }), {
