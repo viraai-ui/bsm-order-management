@@ -2,8 +2,12 @@ import type { TeamAssignment } from '@prisma/client';
 import type { MachineUnitApiRecord, WorkflowStage } from '../../src/lib/dispatch.js';
 import type {
   DispatchOrdersByTeamApiRecord,
+  DispatchStageStatus,
+  MediaStageStatus,
   OrderApiRecord,
   OrderDetailApiRecord,
+  PipelineStage,
+  QrStageStatus,
 } from '../../src/lib/orders.js';
 import type { NormalizedOrder } from '../../src/lib/zoho.js';
 import type {
@@ -51,6 +55,11 @@ type FakeOrderRecord = {
   destination: string;
   status: string;
   notes: string | null;
+  pipelineStage: PipelineStage;
+  qrStageStatus: QrStageStatus;
+  dispatchStageStatus: DispatchStageStatus;
+  mediaStageStatus: MediaStageStatus;
+  dispatchQueuePosition: number | null;
   teamAssignment: TeamAssignment | null;
   assignedAt: string | null;
   createdAt: string;
@@ -71,6 +80,11 @@ const orders = new Map<string, FakeOrderRecord>([
       destination: 'Delhi NCR',
       status: 'Awaiting media',
       notes: null,
+      pipelineStage: 'QR_QUEUE',
+      qrStageStatus: 'PENDING',
+      dispatchStageStatus: 'PENDING',
+      mediaStageStatus: 'PENDING',
+      dispatchQueuePosition: null,
       teamAssignment: 'TEAM_A',
       assignedAt: '2026-04-13T07:00:00.000Z',
       createdAt: '2026-04-13T06:55:00.000Z',
@@ -109,6 +123,11 @@ const orders = new Map<string, FakeOrderRecord>([
       destination: 'Jaipur',
       status: 'Dispatch ready',
       notes: null,
+      pipelineStage: 'DISPATCH',
+      qrStageStatus: 'COMPLETED',
+      dispatchStageStatus: 'PENDING',
+      mediaStageStatus: 'PENDING',
+      dispatchQueuePosition: 1,
       teamAssignment: 'TEAM_B',
       assignedAt: '2026-04-13T07:05:00.000Z',
       createdAt: '2026-04-13T07:00:00.000Z',
@@ -147,6 +166,11 @@ const orders = new Map<string, FakeOrderRecord>([
       destination: 'Lucknow',
       status: 'Testing complete',
       notes: null,
+      pipelineStage: 'MEDIA',
+      qrStageStatus: 'PENDING',
+      dispatchStageStatus: 'COMPLETED',
+      mediaStageStatus: 'READY_TO_CLOSE',
+      dispatchQueuePosition: null,
       teamAssignment: 'TEAM_A',
       assignedAt: '2026-04-13T07:10:00.000Z',
       createdAt: '2026-04-13T07:05:00.000Z',
@@ -185,6 +209,11 @@ const orders = new Map<string, FakeOrderRecord>([
       destination: 'Chandigarh',
       status: 'Testing complete',
       notes: null,
+      pipelineStage: 'MEDIA',
+      qrStageStatus: 'COMPLETED',
+      dispatchStageStatus: 'COMPLETED',
+      mediaStageStatus: 'PENDING',
+      dispatchQueuePosition: null,
       teamAssignment: 'TEAM_B',
       assignedAt: '2026-04-13T07:15:00.000Z',
       createdAt: '2026-04-13T07:10:00.000Z',
@@ -237,6 +266,11 @@ function summarizeOrder(order: FakeOrderRecord): OrderApiRecord {
     deliveryDate: order.deliveryDate,
     destination: order.destination,
     status: order.status,
+    pipelineStage: order.pipelineStage,
+    qrStageStatus: order.qrStageStatus,
+    dispatchStageStatus: order.dispatchStageStatus,
+    mediaStageStatus: order.mediaStageStatus,
+    dispatchQueuePosition: order.dispatchQueuePosition,
     teamAssignment: order.teamAssignment,
     assignedAt: order.assignedAt,
     machineUnitCount: order.machineUnits.length,
@@ -274,6 +308,11 @@ function detailOrder(order: FakeOrderRecord): OrderDetailApiRecord {
     destination: order.destination,
     status: order.status,
     notes: order.notes,
+    pipelineStage: order.pipelineStage,
+    qrStageStatus: order.qrStageStatus,
+    dispatchStageStatus: order.dispatchStageStatus,
+    mediaStageStatus: order.mediaStageStatus,
+    dispatchQueuePosition: order.dispatchQueuePosition,
     teamAssignment: order.teamAssignment,
     assignedAt: order.assignedAt,
     createdAt: order.createdAt,
@@ -303,10 +342,21 @@ export function createFakeDispatchRepository(): DispatchRepository {
   const getMachineUnit = (id: string) => getAllOrders().flatMap((order) => order.machineUnits).find((machineUnit) => machineUnit.id === id);
   const getOrderByMachineUnit = (id: string) => getAllOrders().find((order) => order.machineUnits.some((machineUnit) => machineUnit.id === id));
 
-  const listDispatchOrders = async (): Promise<DispatchOrdersByTeamApiRecord> => ({
-    TEAM_A: getAllOrders().filter((order) => order.teamAssignment === 'TEAM_A').map(summarizeOrder),
-    TEAM_B: getAllOrders().filter((order) => order.teamAssignment === 'TEAM_B').map(summarizeOrder),
-  });
+  const listDispatchOrders = async (view?: { team?: TeamAssignment | 'split' }): Promise<DispatchOrdersByTeamApiRecord> => {
+    const dispatchOrders = getAllOrders()
+      .filter((order) => order.pipelineStage === 'DISPATCH')
+      .sort((left, right) => (left.dispatchQueuePosition ?? Number.MAX_SAFE_INTEGER) - (right.dispatchQueuePosition ?? Number.MAX_SAFE_INTEGER));
+    const grouped = {
+      TEAM_A: dispatchOrders.filter((order) => order.teamAssignment === 'TEAM_A').map(summarizeOrder),
+      TEAM_B: dispatchOrders.filter((order) => order.teamAssignment === 'TEAM_B').map(summarizeOrder),
+    } satisfies DispatchOrdersByTeamApiRecord;
+
+    if (!view?.team || view.team === 'split') return grouped;
+    return {
+      TEAM_A: view.team === 'TEAM_A' ? grouped.TEAM_A : [],
+      TEAM_B: view.team === 'TEAM_B' ? grouped.TEAM_B : [],
+    };
+  };
 
   return {
     async listOrders(input) {
@@ -345,7 +395,66 @@ export function createFakeDispatchRepository(): DispatchRepository {
         machineUnit.qrCodeValue = machineUnit.serialNumber ? `qr://${machineUnit.serialNumber}` : null;
       }
 
+      order.qrStageStatus = 'COMPLETED';
       order.updatedAt = '2026-04-15T12:05:00.000Z';
+      return detailOrder(order);
+    },
+    async completeOrderQr(id) {
+      const order = orderData.get(id);
+      if (!order) return null;
+
+      if (!order.teamAssignment) {
+        const assignedCount = getAllOrders().filter((currentOrder) => currentOrder.assignedAt).length;
+        order.teamAssignment = getNextTeamAssignment(assignedCount);
+      }
+      order.assignedAt ??= '2026-04-15T12:15:00.000Z';
+      order.pipelineStage = 'DISPATCH';
+      order.qrStageStatus = 'COMPLETED';
+      order.dispatchStageStatus = 'PENDING';
+      order.mediaStageStatus = 'PENDING';
+      order.dispatchQueuePosition = order.dispatchQueuePosition ?? 1;
+      order.status = 'Dispatch ready';
+      order.updatedAt = '2026-04-15T12:15:00.000Z';
+      return detailOrder(order);
+    },
+    async reorderDispatchQueue({ teamAssignment, orderedIds }) {
+      orderedIds.forEach((id, index) => {
+        const order = orderData.get(id);
+        if (!order) return;
+        order.teamAssignment = teamAssignment;
+        order.pipelineStage = 'DISPATCH';
+        order.dispatchQueuePosition = index + 1;
+        order.dispatchStageStatus = 'PENDING';
+        order.status = 'Dispatch ready';
+        order.updatedAt = '2026-04-15T12:20:00.000Z';
+      });
+
+      return listDispatchOrders();
+    },
+    async completeDispatch({ id }) {
+      const order = orderData.get(id);
+      if (!order) return null;
+      order.pipelineStage = 'MEDIA';
+      order.dispatchStageStatus = 'COMPLETED';
+      order.mediaStageStatus = order.machineUnits.every((machineUnit) => machineUnit.videoCount >= machineUnit.requiredVideoCount)
+        ? 'READY_TO_CLOSE'
+        : 'PENDING';
+      order.dispatchQueuePosition = null;
+      order.status = 'Testing complete';
+      order.updatedAt = '2026-04-15T12:25:00.000Z';
+      return detailOrder(order);
+    },
+    async closeOrder(id) {
+      const order = orderData.get(id);
+      if (!order) return null;
+      const readyToClose = order.machineUnits.length > 0
+        && order.machineUnits.every((machineUnit) => machineUnit.videoCount >= machineUnit.requiredVideoCount);
+      if (!readyToClose) return null;
+      order.pipelineStage = 'CLOSED';
+      order.mediaStageStatus = 'CLOSED';
+      order.dispatchStageStatus = 'COMPLETED';
+      order.status = 'Closed';
+      order.updatedAt = '2026-04-15T12:30:00.000Z';
       return detailOrder(order);
     },
     async reconcileZohoOrder(input: NormalizedOrder): Promise<ReconcileZohoOrderResult> {
@@ -361,6 +470,11 @@ export function createFakeDispatchRepository(): DispatchRepository {
         destination: 'Factory dispatch lane',
         status: 'Awaiting media',
         notes: null,
+        pipelineStage: 'QR_QUEUE',
+        qrStageStatus: 'PENDING',
+        dispatchStageStatus: 'PENDING',
+        mediaStageStatus: 'PENDING',
+        dispatchQueuePosition: null,
         teamAssignment: getNextTeamAssignment(assignedOrderCount),
         assignedAt: `2026-04-15T12:${String(orderSequence).padStart(2, '0')}:00.000Z`,
         createdAt: '2026-04-15T12:00:00.000Z',
@@ -372,6 +486,11 @@ export function createFakeDispatchRepository(): DispatchRepository {
       order.customerName = input.customerName;
       order.deliveryDate = `${input.deliveryDate ?? input.orderDate}T00:00:00.000Z`;
       order.status = 'Awaiting media';
+      order.pipelineStage = 'QR_QUEUE';
+      order.qrStageStatus = 'PENDING';
+      order.dispatchStageStatus = 'PENDING';
+      order.mediaStageStatus = 'PENDING';
+      order.dispatchQueuePosition = null;
       order.updatedAt = '2026-04-15T12:10:00.000Z';
       order.machineUnits = input.machineUnits.flatMap((machineUnit, index) =>
         Array.from({ length: machineUnit.quantity }, (_, unitIndex) => ({

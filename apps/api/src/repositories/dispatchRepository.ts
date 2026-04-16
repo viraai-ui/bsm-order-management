@@ -12,8 +12,12 @@ import {
   mapOrderDetailRecord,
   mapOrderListRecord,
   type DispatchOrdersByTeamApiRecord,
+  type DispatchStageStatus,
+  type MediaStageStatus,
   type OrderApiRecord,
   type OrderDetailApiRecord,
+  type PipelineStage,
+  type QrStageStatus,
 } from '../lib/orders.js';
 import type { NormalizedOrder } from '../lib/zoho.js';
 import { getFinancialYearCode, nextSerialNumber } from '../services/serials.js';
@@ -55,10 +59,14 @@ export type ReconcileZohoOrderResult = {
 
 export interface DispatchRepository {
   listOrders(input?: ListOrdersInput): Promise<OrderApiRecord[]>;
-  listDispatchOrders(): Promise<DispatchOrdersByTeamApiRecord>;
+  listDispatchOrders(view?: { team?: TeamAssignment | 'split' }): Promise<DispatchOrdersByTeamApiRecord>;
   getOrderById(id: string): Promise<OrderDetailApiRecord | null>;
   updateOrderTeamAssignment(input: UpdateOrderTeamAssignmentInput): Promise<OrderDetailApiRecord | null>;
   generateOrderQrs(id: string): Promise<OrderDetailApiRecord | null>;
+  completeOrderQr(id: string): Promise<OrderDetailApiRecord | null>;
+  reorderDispatchQueue(input: { teamAssignment: TeamAssignment; orderedIds: string[] }): Promise<DispatchOrdersByTeamApiRecord>;
+  completeDispatch(input: { id: string }): Promise<OrderDetailApiRecord | null>;
+  closeOrder(id: string): Promise<OrderDetailApiRecord | null>;
   reconcileZohoOrder(input: NormalizedOrder): Promise<ReconcileZohoOrderResult>;
   getMachineUnitById(id: string): Promise<MachineUnitApiRecord | null>;
   generateSerialNumber(id: string, date?: Date): Promise<MachineUnitApiRecord | null>;
@@ -103,6 +111,34 @@ type PrismaOrderDetailPayload = Prisma.OrderGetPayload<{
     };
   };
 }>;
+
+function getQrStageStatus(input: { total: number; ready: number }): QrStageStatus {
+  if (input.ready <= 0) return 'PENDING';
+  if (input.total > 0 && input.ready >= input.total) return 'COMPLETED';
+  return 'TEST_QR_GENERATED';
+}
+
+function getMediaStageStatus(units: Array<{ complete: boolean }>): MediaStageStatus {
+  return units.length > 0 && units.every((unit) => unit.complete) ? 'READY_TO_CLOSE' : 'PENDING';
+}
+
+function withPipelineFields<T extends object>(
+  value: T,
+  fields: {
+    pipelineStage: PipelineStage;
+    qrStageStatus: QrStageStatus;
+    dispatchStageStatus: DispatchStageStatus;
+    mediaStageStatus: MediaStageStatus;
+    dispatchQueuePosition?: number | null;
+    dispatchCompletedAt?: Date | null;
+    closedAt?: Date | null;
+    stageEnteredAt?: Date;
+    teamAssignment?: TeamAssignment | null;
+    assignedAt?: Date | null;
+  },
+): T & typeof fields {
+  return { ...value, ...fields };
+}
 
 export const defaultSeedOrders = [
   {
@@ -364,11 +400,21 @@ export class PrismaDispatchRepository implements DispatchRepository {
     return orders.map((order) => mapOrderListRecord(order));
   }
 
-  async listDispatchOrders(): Promise<DispatchOrdersByTeamApiRecord> {
-    const orders = await this.listOrders();
-    return {
+  async listDispatchOrders(view?: { team?: TeamAssignment | 'split' }): Promise<DispatchOrdersByTeamApiRecord> {
+    const orders = (await this.listOrders())
+      .filter((order) => order.pipelineStage === 'DISPATCH')
+      .sort((left, right) => (left.dispatchQueuePosition ?? Number.MAX_SAFE_INTEGER) - (right.dispatchQueuePosition ?? Number.MAX_SAFE_INTEGER));
+
+    const data: DispatchOrdersByTeamApiRecord = {
       TEAM_A: orders.filter((order) => order.teamAssignment === 'TEAM_A'),
       TEAM_B: orders.filter((order) => order.teamAssignment === 'TEAM_B')
+    };
+
+    if (!view?.team || view.team === 'split') return data;
+
+    return {
+      TEAM_A: view.team === 'TEAM_A' ? data.TEAM_A : [],
+      TEAM_B: view.team === 'TEAM_B' ? data.TEAM_B : []
     };
   }
 
@@ -423,6 +469,128 @@ export class PrismaDispatchRepository implements DispatchRepository {
         await this.generateQrCode(machineUnit.id);
       }
     }
+
+    return this.getOrderById(id);
+  }
+
+  async completeOrderQr(id: string): Promise<OrderDetailApiRecord | null> {
+    await this.ensureSeedData();
+    const order = await this.prismaClient.order.findUnique({
+      where: { id },
+      include: {
+        machineUnits: {
+          include: { mediaFiles: true },
+          orderBy: { id: 'asc' }
+        }
+      }
+    });
+
+    if (!order) return null;
+
+    const qrReady = order.machineUnits.filter((machineUnit) => machineUnit.qrCodeValue).length;
+    const currentTeamAssignment = order.teamAssignment;
+    const nextTeamAssignment = currentTeamAssignment ?? getNextTeamAssignment(
+      await this.prismaClient.order.count({ where: { assignedAt: { not: null } } })
+    );
+
+    await this.prismaClient.order.update({
+      where: { id },
+      data: withPipelineFields({
+        teamAssignment: nextTeamAssignment,
+        assignedAt: order.assignedAt ?? new Date(),
+      }, {
+        pipelineStage: 'DISPATCH',
+        qrStageStatus: getQrStageStatus({ total: order.machineUnits.length, ready: qrReady || order.machineUnits.length }),
+        dispatchStageStatus: 'PENDING',
+        mediaStageStatus: 'PENDING',
+        dispatchQueuePosition: null,
+        stageEnteredAt: new Date(),
+        teamAssignment: nextTeamAssignment,
+        assignedAt: order.assignedAt ?? new Date(),
+      }) as never
+    });
+
+    return this.getOrderById(id);
+  }
+
+  async reorderDispatchQueue(input: { teamAssignment: TeamAssignment; orderedIds: string[] }): Promise<DispatchOrdersByTeamApiRecord> {
+    await this.ensureSeedData();
+
+    await this.prismaClient.$transaction(
+      input.orderedIds.map((id, index) => this.prismaClient.order.update({
+        where: { id },
+        data: withPipelineFields({
+          teamAssignment: input.teamAssignment,
+          assignedAt: new Date(),
+        }, {
+          pipelineStage: 'DISPATCH',
+          qrStageStatus: 'COMPLETED',
+          dispatchStageStatus: 'PENDING',
+          mediaStageStatus: 'PENDING',
+          dispatchQueuePosition: index + 1,
+          stageEnteredAt: new Date(),
+          teamAssignment: input.teamAssignment,
+          assignedAt: new Date(),
+        }) as never
+      }))
+    );
+
+    return this.listDispatchOrders();
+  }
+
+  async completeDispatch(input: { id: string }): Promise<OrderDetailApiRecord | null> {
+    await this.ensureSeedData();
+    const existing = await this.prismaClient.order.findUnique({ where: { id: input.id } });
+    if (!existing) return null;
+
+    await this.prismaClient.order.update({
+      where: { id: input.id },
+      data: withPipelineFields({}, {
+        pipelineStage: 'MEDIA',
+        qrStageStatus: 'COMPLETED',
+        dispatchStageStatus: 'COMPLETED',
+        mediaStageStatus: 'PENDING',
+        dispatchQueuePosition: null,
+        dispatchCompletedAt: new Date(),
+        stageEnteredAt: new Date(),
+      }) as never
+    });
+
+    return this.getOrderById(input.id);
+  }
+
+  async closeOrder(id: string): Promise<OrderDetailApiRecord | null> {
+    await this.ensureSeedData();
+    const order = await this.prismaClient.order.findUnique({
+      where: { id },
+      include: {
+        machineUnits: {
+          include: { mediaFiles: true },
+          orderBy: { id: 'asc' }
+        }
+      }
+    });
+    if (!order) return null;
+
+    const mediaStageStatus = getMediaStageStatus(order.machineUnits.map((machineUnit) => ({
+      complete: machineUnit.mediaFiles.filter((file) => file.kind === MediaKind.VIDEO).length >= machineUnit.requiredVideoCount
+    })));
+    if (mediaStageStatus !== 'READY_TO_CLOSE') return null;
+
+    await this.prismaClient.order.update({
+      where: { id },
+      data: withPipelineFields({
+        status: OrderStatus.COMPLETED,
+      }, {
+        pipelineStage: 'CLOSED',
+        qrStageStatus: 'COMPLETED',
+        dispatchStageStatus: 'COMPLETED',
+        mediaStageStatus: 'CLOSED',
+        dispatchQueuePosition: null,
+        closedAt: new Date(),
+        stageEnteredAt: new Date(),
+      }) as never
+    });
 
     return this.getOrderById(id);
   }

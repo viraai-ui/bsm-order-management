@@ -20,8 +20,11 @@ export function createOrdersRouter(dispatchRepository: DispatchRepository, zohoS
     response.status(200).json({ data });
   });
 
-  router.get('/dispatch', async (_request, response) => {
-    const data = await dispatchRepository.listDispatchOrders();
+  router.get('/dispatch', async (request, response) => {
+    const team = request.query.team === 'split'
+      ? 'split'
+      : parseTeamAssignment(request.query.team);
+    const data = await dispatchRepository.listDispatchOrders(team ? { team } : undefined);
     response.status(200).json({ data });
   });
 
@@ -62,6 +65,61 @@ export function createOrdersRouter(dispatchRepository: DispatchRepository, zohoS
 
     if (!order) {
       response.status(404).json({ error: 'Order not found' });
+      return;
+    }
+
+    response.status(200).json({ data: order });
+  });
+
+  router.post('/:id/qr/complete', async (request, response) => {
+    const order = await dispatchRepository.completeOrderQr(request.params.id);
+
+    if (!order) {
+      response.status(404).json({ error: 'Order not found' });
+      return;
+    }
+
+    response.status(200).json({ data: order });
+  });
+
+  router.post('/dispatch/reorder', async (request, response) => {
+    const teamAssignment = parseTeamAssignment(request.body?.teamAssignment);
+    const orderedIds = Array.isArray(request.body?.orderedIds)
+      ? request.body.orderedIds.filter((id: unknown): id is string => typeof id === 'string' && id.length > 0)
+      : null;
+
+    if (!teamAssignment || !orderedIds) {
+      response.status(400).json({ error: 'teamAssignment must be TEAM_A or TEAM_B and orderedIds must be a string array' });
+      return;
+    }
+
+    const data = await dispatchRepository.reorderDispatchQueue({ teamAssignment, orderedIds });
+    response.status(200).json({ data });
+  });
+
+  router.post('/:id/dispatch/complete', async (request, response) => {
+    const existing = await dispatchRepository.getOrderById(request.params.id);
+
+    if (!existing) {
+      response.status(404).json({ error: 'Order not found' });
+      return;
+    }
+
+    const order = await dispatchRepository.completeDispatch({ id: request.params.id });
+    response.status(200).json({ data: order ?? existing });
+  });
+
+  router.post('/:id/close', async (request, response) => {
+    const existing = await dispatchRepository.getOrderById(request.params.id);
+
+    if (!existing) {
+      response.status(404).json({ error: 'Order not found' });
+      return;
+    }
+
+    const order = await dispatchRepository.closeOrder(request.params.id);
+    if (!order) {
+      response.status(409).json({ error: 'Order is not ready to close' });
       return;
     }
 

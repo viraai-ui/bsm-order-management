@@ -2,6 +2,10 @@ import { MediaKind, type Prisma, type TeamAssignment } from '@prisma/client';
 import type { MachineUnitApiRecord, WorkflowStage } from './dispatch.js';
 
 export type OrderTeamAssignment = TeamAssignment;
+export type PipelineStage = 'QR_QUEUE' | 'DISPATCH' | 'MEDIA' | 'CLOSED';
+export type QrStageStatus = 'PENDING' | 'TEST_QR_GENERATED' | 'COMPLETED';
+export type DispatchStageStatus = 'PENDING' | 'IN_PROGRESS' | 'COMPLETED';
+export type MediaStageStatus = 'PENDING' | 'READY_TO_CLOSE' | 'CLOSED';
 
 export type OrderMachineSummaryApiRecord = {
   id: string;
@@ -25,6 +29,11 @@ export type OrderApiRecord = {
   deliveryDate: string | null;
   destination: string;
   status: string;
+  pipelineStage: PipelineStage;
+  qrStageStatus: QrStageStatus;
+  dispatchStageStatus: DispatchStageStatus;
+  mediaStageStatus: MediaStageStatus;
+  dispatchQueuePosition: number | null;
   teamAssignment: OrderTeamAssignment | null;
   assignedAt: string | null;
   machineUnitCount: number;
@@ -47,6 +56,11 @@ export type OrderDetailApiRecord = {
   destination: string;
   status: string;
   notes: string | null;
+  pipelineStage: PipelineStage;
+  qrStageStatus: QrStageStatus;
+  dispatchStageStatus: DispatchStageStatus;
+  mediaStageStatus: MediaStageStatus;
+  dispatchQueuePosition: number | null;
   teamAssignment: OrderTeamAssignment | null;
   assignedAt: string | null;
   createdAt: string;
@@ -95,19 +109,87 @@ type OrderDetailPayload = Prisma.OrderGetPayload<{
   };
 }>;
 
-function toWorkflowStageLabel(status: string, machineWorkflowStage: WorkflowStage): string {
-  if (machineWorkflowStage === 'DISPATCHED') {
-    return 'Dispatched';
-  }
+type PipelineOrderFields = {
+  pipelineStage?: PipelineStage;
+  qrStageStatus?: QrStageStatus;
+  dispatchStageStatus?: DispatchStageStatus;
+  mediaStageStatus?: MediaStageStatus;
+  dispatchQueuePosition?: number | null;
+};
 
-  if (machineWorkflowStage === 'READY_FOR_DISPATCH' || status === 'READY_FOR_DISPATCH') {
-    return 'Dispatch ready';
-  }
+function readPipelineFields(order: unknown): PipelineOrderFields {
+  const record = order as Record<string, unknown>;
+  return {
+    pipelineStage: typeof record.pipelineStage === 'string' ? record.pipelineStage as PipelineStage : undefined,
+    qrStageStatus: typeof record.qrStageStatus === 'string' ? record.qrStageStatus as QrStageStatus : undefined,
+    dispatchStageStatus: typeof record.dispatchStageStatus === 'string'
+      ? record.dispatchStageStatus as DispatchStageStatus
+      : undefined,
+    mediaStageStatus: typeof record.mediaStageStatus === 'string' ? record.mediaStageStatus as MediaStageStatus : undefined,
+    dispatchQueuePosition: typeof record.dispatchQueuePosition === 'number' ? record.dispatchQueuePosition : null,
+  };
+}
 
-  if (machineWorkflowStage === 'MEDIA_UPLOADED') {
-    return 'Testing complete';
-  }
+function deriveQrStageStatus(machineUnits: Array<{ qrCodeValue?: string | null; qrCodeCount?: number }>): QrStageStatus {
+  const total = machineUnits.length;
+  const ready = machineUnits.filter((machineUnit) => Boolean(machineUnit.qrCodeValue) || (machineUnit.qrCodeCount ?? 0) > 0).length;
 
+  if (ready <= 0) return 'PENDING';
+  if (total > 0 && ready >= total) return 'COMPLETED';
+  return 'TEST_QR_GENERATED';
+}
+
+function deriveDispatchStageStatus(
+  machineUnits: Array<{ workflowStage: WorkflowStage; dispatchedAt?: string | null }>,
+  pipelineStage: PipelineStage,
+): DispatchStageStatus {
+  if (pipelineStage === 'MEDIA' || pipelineStage === 'CLOSED') return 'COMPLETED';
+  if (pipelineStage !== 'DISPATCH') return 'PENDING';
+
+  const completedCount = machineUnits.filter(
+    (machineUnit) => machineUnit.workflowStage === 'DISPATCHED' || machineUnit.dispatchedAt,
+  ).length;
+
+  if (completedCount <= 0) return 'PENDING';
+  if (completedCount >= machineUnits.length && machineUnits.length > 0) return 'COMPLETED';
+  return 'IN_PROGRESS';
+}
+
+function deriveMediaStageStatus(
+  machineUnits: Array<{ videoCount: number; requiredVideoCount?: number }>,
+  pipelineStage: PipelineStage,
+): MediaStageStatus {
+  if (pipelineStage === 'CLOSED') return 'CLOSED';
+  if (pipelineStage !== 'MEDIA') return 'PENDING';
+
+  return machineUnits.length > 0
+    && machineUnits.every((machineUnit) => machineUnit.videoCount >= (machineUnit.requiredVideoCount ?? 0))
+    ? 'READY_TO_CLOSE'
+    : 'PENDING';
+}
+
+function derivePipelineStage(
+  machineUnits: Array<Pick<MachineUnitApiRecord, 'workflowStage'>>,
+  status: string,
+  mediaStageStatus: MediaStageStatus,
+): PipelineStage {
+  if (mediaStageStatus === 'CLOSED') return 'CLOSED';
+  if (status === 'COMPLETED') return 'CLOSED';
+  if (machineUnits.some((machineUnit) => machineUnit.workflowStage === 'READY_FOR_DISPATCH' || machineUnit.workflowStage === 'DISPATCHED')) {
+    return 'DISPATCH';
+  }
+  if (machineUnits.some((machineUnit) => machineUnit.workflowStage === 'MEDIA_UPLOADED')) {
+    return 'MEDIA';
+  }
+  return 'QR_QUEUE';
+}
+
+function toWorkflowStageLabel(pipelineStage: PipelineStage, mediaStageStatus: MediaStageStatus, dispatchStageStatus: DispatchStageStatus): string {
+  if (pipelineStage === 'CLOSED') return 'Closed';
+  if (pipelineStage === 'MEDIA' && mediaStageStatus === 'READY_TO_CLOSE') return 'Ready to close';
+  if (pipelineStage === 'MEDIA') return 'Testing complete';
+  if (pipelineStage === 'DISPATCH' && dispatchStageStatus === 'IN_PROGRESS') return 'Dispatch in progress';
+  if (pipelineStage === 'DISPATCH') return 'Dispatch ready';
   return 'Awaiting media';
 }
 
@@ -169,6 +251,12 @@ export function mapOrderListRecord(order: OrderListPayload): OrderApiRecord {
   const requiredVideoCount = order.machineUnits.reduce((sum, machineUnit) => sum + machineUnit.requiredVideoCount, 0);
   const serialNumberCount = order.machineUnits.filter((machineUnit) => machineUnit.serialNumber).length;
   const qrCodeCount = order.machineUnits.filter((machineUnit) => machineUnit.qrCodeValue).length;
+  const pipelineFields = readPipelineFields(order);
+  const fallbackPipelineStage = derivePipelineStage(machineUnits, order.status, pipelineFields.mediaStageStatus ?? 'PENDING');
+  const pipelineStage = pipelineFields.pipelineStage ?? fallbackPipelineStage;
+  const qrStageStatus = pipelineFields.qrStageStatus ?? deriveQrStageStatus(machineUnits);
+  const dispatchStageStatus = pipelineFields.dispatchStageStatus ?? deriveDispatchStageStatus(machineUnits, pipelineStage);
+  const mediaStageStatus = pipelineFields.mediaStageStatus ?? deriveMediaStageStatus(machineUnits, pipelineStage);
 
   return {
     id: order.id,
@@ -178,7 +266,12 @@ export function mapOrderListRecord(order: OrderListPayload): OrderApiRecord {
     customerEmail: order.customerEmail,
     deliveryDate: order.dueDate?.toISOString() ?? null,
     destination: order.destination,
-    status: toWorkflowStageLabel(order.status, (order.machineUnits[0]?.workflowStage as WorkflowStage | undefined) ?? 'PACKING_TESTING'),
+    status: toWorkflowStageLabel(pipelineStage, mediaStageStatus, dispatchStageStatus),
+    pipelineStage,
+    qrStageStatus,
+    dispatchStageStatus,
+    mediaStageStatus,
+    dispatchQueuePosition: pipelineFields.dispatchQueuePosition ?? null,
     teamAssignment: order.teamAssignment,
     assignedAt: order.assignedAt?.toISOString() ?? null,
     machineUnitCount: order.machineUnits.length,
@@ -194,6 +287,12 @@ export function mapOrderListRecord(order: OrderListPayload): OrderApiRecord {
 
 export function mapOrderDetailRecord(order: OrderDetailPayload): OrderDetailApiRecord {
   const machineUnits = order.machineUnits.map((machineUnit) => buildMachineUnitRecord(order, machineUnit));
+  const pipelineFields = readPipelineFields(order);
+  const fallbackPipelineStage = derivePipelineStage(machineUnits, order.status, pipelineFields.mediaStageStatus ?? 'PENDING');
+  const pipelineStage = pipelineFields.pipelineStage ?? fallbackPipelineStage;
+  const qrStageStatus = pipelineFields.qrStageStatus ?? deriveQrStageStatus(machineUnits);
+  const dispatchStageStatus = pipelineFields.dispatchStageStatus ?? deriveDispatchStageStatus(machineUnits, pipelineStage);
+  const mediaStageStatus = pipelineFields.mediaStageStatus ?? deriveMediaStageStatus(machineUnits, pipelineStage);
 
   return {
     id: order.id,
@@ -203,8 +302,13 @@ export function mapOrderDetailRecord(order: OrderDetailPayload): OrderDetailApiR
     customerEmail: order.customerEmail,
     deliveryDate: order.dueDate?.toISOString() ?? null,
     destination: order.destination,
-    status: toWorkflowStageLabel(order.status, (order.machineUnits[0]?.workflowStage as WorkflowStage | undefined) ?? 'PACKING_TESTING'),
+    status: toWorkflowStageLabel(pipelineStage, mediaStageStatus, dispatchStageStatus),
     notes: order.notes,
+    pipelineStage,
+    qrStageStatus,
+    dispatchStageStatus,
+    mediaStageStatus,
+    dispatchQueuePosition: pipelineFields.dispatchQueuePosition ?? null,
     teamAssignment: order.teamAssignment,
     assignedAt: order.assignedAt?.toISOString() ?? null,
     createdAt: order.createdAt.toISOString(),

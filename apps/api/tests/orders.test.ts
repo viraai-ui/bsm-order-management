@@ -17,6 +17,8 @@ describe('order routes', () => {
           salesOrderNumber: 'BSM-24018',
           customerName: 'Anand Cooling Towers',
           destination: 'Delhi NCR',
+          pipelineStage: 'QR_QUEUE',
+          qrStageStatus: 'PENDING',
           teamAssignment: 'TEAM_A',
           machineUnitCount: 1,
           imageCount: 4,
@@ -48,8 +50,14 @@ describe('order routes', () => {
     const response = await request(app).get('/orders/dispatch');
 
     expect(response.status).toBe(200);
-    expect(response.body.data.TEAM_A).toHaveLength(2);
-    expect(response.body.data.TEAM_B).toHaveLength(2);
+    expect(response.body.data.TEAM_A).toHaveLength(0);
+    expect(response.body.data.TEAM_B).toHaveLength(1);
+    expect(response.body.data.TEAM_B[0]).toMatchObject({
+      id: 'BSM-24021',
+      pipelineStage: 'DISPATCH',
+      dispatchStageStatus: 'PENDING',
+      dispatchQueuePosition: 1,
+    });
   });
 
   it('returns order detail with machine units and workflow summary', async () => {
@@ -61,6 +69,9 @@ describe('order routes', () => {
     expect(response.body.data).toMatchObject({
       id: 'BSM-24021',
       teamAssignment: 'TEAM_B',
+      pipelineStage: 'DISPATCH',
+      qrStageStatus: 'COMPLETED',
+      dispatchStageStatus: 'PENDING',
       qrCodeCount: 1,
       workflowSummary: {
         readyForDispatchCount: 1,
@@ -97,6 +108,73 @@ describe('order routes', () => {
       serialNumber: '262700025',
       qrCodeValue: 'qr://262700025',
     });
+  });
+
+  it('moves an order to dispatch and keeps qr complete when qr completion is confirmed', async () => {
+    const app = createApp({ dispatchRepository: createFakeDispatchRepository() });
+
+    const response = await request(app).post('/orders/BSM-24018/qr/complete');
+
+    expect(response.status).toBe(200);
+    expect(response.body.data).toMatchObject({
+      id: 'BSM-24018',
+      pipelineStage: 'DISPATCH',
+      qrStageStatus: 'COMPLETED',
+      dispatchStageStatus: 'PENDING',
+      teamAssignment: 'TEAM_A',
+      dispatchQueuePosition: 1,
+    });
+  });
+
+  it('moves a dispatch order into media when dispatch is completed', async () => {
+    const app = createApp({ dispatchRepository: createFakeDispatchRepository() });
+
+    const response = await request(app).post('/orders/BSM-24021/dispatch/complete');
+
+    expect(response.status).toBe(200);
+    expect(response.body.data).toMatchObject({
+      id: 'BSM-24021',
+      pipelineStage: 'MEDIA',
+      dispatchStageStatus: 'COMPLETED',
+      mediaStageStatus: 'READY_TO_CLOSE',
+    });
+  });
+
+  it('closes a media order only when it is ready to close', async () => {
+    const app = createApp({ dispatchRepository: createFakeDispatchRepository() });
+
+    const blockedResponse = await request(app).post('/orders/BSM-24029/close');
+
+    expect(blockedResponse.status).toBe(409);
+    expect(blockedResponse.body).toEqual({ error: 'Order is not ready to close' });
+
+    const successResponse = await request(app).post('/orders/BSM-24025/close');
+
+    expect(successResponse.status).toBe(200);
+    expect(successResponse.body.data).toMatchObject({
+      id: 'BSM-24025',
+      pipelineStage: 'CLOSED',
+      mediaStageStatus: 'CLOSED',
+      status: 'Closed',
+    });
+  });
+
+  it('reorders dispatch queue positions within a team', async () => {
+    const app = createApp({ dispatchRepository: createFakeDispatchRepository() });
+
+    await request(app).post('/orders/BSM-24018/qr/complete');
+
+    const response = await request(app)
+      .post('/orders/dispatch/reorder')
+      .send({ teamAssignment: 'TEAM_A', orderedIds: ['BSM-24018'] });
+
+    expect(response.status).toBe(200);
+    expect(response.body.data.TEAM_A).toEqual([
+      expect.objectContaining({
+        id: 'BSM-24018',
+        dispatchQueuePosition: 1,
+      }),
+    ]);
   });
 
   it('runs a manual Zoho sync via POST /orders/sync and returns the latest summary', async () => {
