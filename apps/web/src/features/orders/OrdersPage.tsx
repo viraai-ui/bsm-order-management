@@ -2,6 +2,17 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { OperationsLayout } from '../../components/OperationsLayout';
 import { fetchOrders, type OrderSummary } from '../../lib/apiClient';
+import { getOrderStageCode, getOrderStageLabel, getOrderStageSummary, getOrderStageTone } from './pipelineStage';
+
+const pipelineStageOptions = [
+  { value: 'ALL', label: 'All stages' },
+  { value: 'QR_QUEUE', label: 'QR Queue' },
+  { value: 'DISPATCH', label: 'Dispatch' },
+  { value: 'MEDIA', label: 'Media' },
+  { value: 'CLOSED', label: 'Closed' },
+] as const;
+
+type PipelineStageFilter = typeof pipelineStageOptions[number]['value'];
 
 export function OrdersPage() {
   const [orders, setOrders] = useState<OrderSummary[]>([]);
@@ -9,6 +20,7 @@ export function OrdersPage() {
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [teamFilter, setTeamFilter] = useState<'all' | 'TEAM_A' | 'TEAM_B'>('all');
+  const [stageFilter, setStageFilter] = useState<PipelineStageFilter>('ALL');
 
   const loadOrders = useCallback(async () => {
     setLoading(true);
@@ -31,13 +43,20 @@ export function OrdersPage() {
 
   const filteredOrders = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
-    if (!normalizedQuery) return orders;
 
     return orders.filter((order) => {
-      return [order.salesOrderNumber, order.customerName, order.destination, order.status]
-        .some((value) => value.toLowerCase().includes(normalizedQuery));
+      const matchesQuery = !normalizedQuery || [
+        order.salesOrderNumber,
+        order.customerName,
+        order.destination,
+        order.status,
+        getOrderStageLabel(order),
+      ].some((value) => value.toLowerCase().includes(normalizedQuery));
+
+      const matchesStage = stageFilter === 'ALL' || getOrderStageCode(order) === stageFilter;
+      return matchesQuery && matchesStage;
     });
-  }, [orders, query]);
+  }, [orders, query, stageFilter]);
 
   return (
     <OperationsLayout
@@ -48,6 +67,7 @@ export function OrdersPage() {
             <li>{orders.length} total sales orders in the current frontend view</li>
             <li>{orders.filter((order) => order.teamAssignment === 'TEAM_A').length} assigned to Team A</li>
             <li>{orders.filter((order) => order.teamAssignment === 'TEAM_B').length} assigned to Team B</li>
+            <li>{orders.filter((order) => getOrderStageCode(order) === 'CLOSED').length} closed orders still visible in the ledger</li>
           </ul>
         </section>
       )}
@@ -67,7 +87,7 @@ export function OrdersPage() {
         </header>
 
         <section className="detail-panel filter-panel">
-          <div className="page-filters-grid">
+          <div className="page-filters-grid pipeline-filters-grid">
             <label className="stacked-field">
               <span className="meta-label">Search orders</span>
               <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Order number, customer, destination" />
@@ -78,6 +98,14 @@ export function OrdersPage() {
                 <option value="all">All teams</option>
                 <option value="TEAM_A">Team A</option>
                 <option value="TEAM_B">Team B</option>
+              </select>
+            </label>
+            <label className="stacked-field">
+              <span className="meta-label">Pipeline stage</span>
+              <select aria-label="Pipeline stage" value={stageFilter} onChange={(event) => setStageFilter(event.target.value as PipelineStageFilter)}>
+                {pipelineStageOptions.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
               </select>
             </label>
           </div>
@@ -94,7 +122,7 @@ export function OrdersPage() {
         <section className="detail-panel">
           <div className="detail-panel-header">
             <div>
-              <p className="eyebrow">Open orders</p>
+              <p className="eyebrow">Order ledger</p>
               <h3>{filteredOrders.length} result{filteredOrders.length === 1 ? '' : 's'}</h3>
             </div>
           </div>
@@ -113,9 +141,13 @@ export function OrdersPage() {
                     <p className="eyebrow">{order.salesOrderNumber}</p>
                     <h3>{order.customerName}</h3>
                     <p className="muted-copy">{order.destination} • {order.deliveryLabel}</p>
+                    <p className="muted-copy">{getOrderStageSummary(order)}</p>
                   </div>
                   <div className="order-badges">
-                    <span className={`pill ${order.teamAssignment === 'TEAM_B' ? 'tone-urgent' : 'tone-live'}`}>
+                    <span className={`pill ${getOrderStageTone(order)}`}>
+                      {getOrderStageLabel(order)}
+                    </span>
+                    <span className={`pill ${order.teamAssignment === 'TEAM_B' ? 'tone-urgent' : order.teamAssignment === 'TEAM_A' ? 'tone-live' : 'tone-neutral'}`}>
                       {order.teamAssignment === 'TEAM_B' ? 'Team B' : order.teamAssignment === 'TEAM_A' ? 'Team A' : 'Unassigned'}
                     </span>
                     <span className={`pill ${order.status === 'Dispatch ready' ? 'tone-live' : order.status === 'Dispatched' ? 'tone-muted' : 'tone-neutral'}`}>

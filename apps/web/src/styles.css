@@ -359,6 +359,10 @@ textarea { resize: vertical; }
   grid-template-columns: minmax(0, 2fr) minmax(220px, 1fr);
 }
 
+.pipeline-filters-grid {
+  grid-template-columns: minmax(0, 2fr) repeat(2, minmax(220px, 1fr));
+}
+
 .order-list-card,
 .team-board,
 .settings-panel {

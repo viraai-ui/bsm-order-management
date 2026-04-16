@@ -8,6 +8,7 @@ import {
   generateSerialForMachineUnit,
   type OrderDetail,
 } from '../../lib/apiClient';
+import { getOrderStageLabel, getOrderStageSummary, getOrderStageTone, isQrComplete } from '../orders/pipelineStage';
 
 export function QrOrderDetailPage() {
   const { id = '' } = useParams();
@@ -70,6 +71,7 @@ export function QrOrderDetailPage() {
             <p className="eyebrow">QR code generator</p>
             <h2>{order?.salesOrderNumber ?? id}</h2>
             <p className="page-subtitle">Generate QR assets from the order and drill into individual machine units only when needed.</p>
+            {order ? <p className="muted-copy">{getOrderStageSummary(order)}</p> : null}
           </div>
           <div className="topbar-actions">
             <button className="primary-button" type="button" onClick={() => void handleGenerateAll()} disabled={bulkBusy || loading}>
@@ -88,6 +90,12 @@ export function QrOrderDetailPage() {
               <div>
                 <p className="eyebrow">Machine units</p>
                 <h3>{order.qrCodeCount}/{order.machineUnitCount} QR ready</h3>
+              </div>
+              <div className="order-badges">
+                <span className={`pill ${isQrComplete(order) ? 'tone-live' : 'tone-urgent'}`}>
+                  {isQrComplete(order) ? 'QR complete' : 'QR in progress'}
+                </span>
+                <span className={`pill ${getOrderStageTone(order)}`}>{getOrderStageLabel(order)}</span>
               </div>
             </div>
             <div className="order-list compact">

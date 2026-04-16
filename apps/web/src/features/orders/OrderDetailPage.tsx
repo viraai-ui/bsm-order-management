@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { OperationsLayout } from '../../components/OperationsLayout';
 import { fetchOrderById, updateOrderTeamAssignment, type OrderDetail, type TeamAssignment } from '../../lib/apiClient';
+import { getOrderStageLabel, getOrderStageSummary, getOrderStageTone } from './pipelineStage';
 
 export function OrderDetailPage() {
   const { id = '' } = useParams();
@@ -48,12 +49,17 @@ export function OrderDetailPage() {
           <section className="rail-panel">
             <p className="eyebrow">Workflow summary</p>
             {order ? (
-              <ul>
-                <li>{order.workflowSummary.awaitingMediaCount} waiting on media</li>
-                <li>{order.workflowSummary.mediaUploadedCount} media complete</li>
-                <li>{order.workflowSummary.readyForDispatchCount} dispatch ready</li>
-                <li>{order.workflowSummary.dispatchedCount} dispatched</li>
-              </ul>
+              <>
+                <div className="order-badges">
+                  <span className={`pill ${getOrderStageTone(order)}`}>{getOrderStageLabel(order)}</span>
+                </div>
+                <ul>
+                  <li>{order.workflowSummary.awaitingMediaCount} waiting on media</li>
+                  <li>{order.workflowSummary.mediaUploadedCount} media complete</li>
+                  <li>{order.workflowSummary.readyForDispatchCount} dispatch ready</li>
+                  <li>{order.workflowSummary.dispatchedCount} dispatched</li>
+                </ul>
+              </>
             ) : <p className="muted-copy">Load an order to inspect its workflow split.</p>}
           </section>
           <section className="rail-panel">
@@ -72,6 +78,7 @@ export function OrderDetailPage() {
             <p className="eyebrow">Order detail</p>
             <h2>{order?.salesOrderNumber ?? id}</h2>
             <p className="page-subtitle">Order-first view for customer, team assignment, and machine-unit drilldown.</p>
+            {order ? <p className="muted-copy">{getOrderStageSummary(order)}</p> : null}
           </div>
           <div className="topbar-actions">
             <Link className="ghost-button" to="/orders">Back to orders</Link>
@@ -97,6 +104,7 @@ export function OrderDetailPage() {
                   <div><span className="meta-label">Customer</span><strong>{order.customerName}</strong></div>
                   <div><span className="meta-label">Destination</span><strong>{order.destination}</strong></div>
                   <div><span className="meta-label">Delivery</span><strong>{order.deliveryLabel}</strong></div>
+                  <div><span className="meta-label">Pipeline stage</span><strong>{getOrderStageLabel(order)}</strong></div>
                   <div><span className="meta-label">Status</span><strong>{order.status}</strong></div>
                 </div>
               </div>
