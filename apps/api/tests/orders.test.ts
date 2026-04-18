@@ -177,7 +177,7 @@ describe('order routes', () => {
     ]);
   });
 
-  it('runs a manual Zoho sync via POST /orders/sync and returns the latest summary', async () => {
+  it('starts a manual Zoho sync via POST /orders/sync and returns immediately with the latest summary snapshot', async () => {
     const syncSummary = {
       trigger: 'manual',
       success: true,
@@ -228,8 +228,13 @@ describe('order routes', () => {
 
     expect(zohoSyncService.start).toHaveBeenCalledTimes(1);
     expect(zohoSyncService.runManualSync).toHaveBeenCalledTimes(1);
-    expect(response.status).toBe(200);
-    expect(response.body).toEqual({ data: syncSummary });
+    expect(response.status).toBe(202);
+    expect(response.body).toEqual({
+      data: {
+        status: 'started',
+        lastSummary: syncSummary
+      }
+    });
   });
 
   it('returns 503 from POST /orders/sync when Zoho sync is not configured', async () => {

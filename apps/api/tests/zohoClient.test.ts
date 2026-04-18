@@ -16,7 +16,7 @@ describe('createZohoClient', () => {
     activeStatuses: ['confirmed', 'packed']
   };
 
-  it('refreshes the access token, fetches all sales-order pages, loads details, and filters inactive statuses', async () => {
+  it('refreshes the access token, fetches configured active statuses, loads details, and skips unrelated statuses', async () => {
     const calls: FetchCall[] = [];
     const fetcher: typeof fetch = async (input, init) => {
       calls.push({ input, init });
@@ -30,14 +30,13 @@ describe('createZohoClient', () => {
         });
       }
 
-      if (url === 'https://www.zohoapis.com/inventory/v1/salesorders?organization_id=1234567890&page=1&per_page=200') {
+      if (url === 'https://www.zohoapis.com/inventory/v1/salesorders?organization_id=1234567890&page=1&per_page=200&status=confirmed') {
         return new Response(
           JSON.stringify({
             salesorders: [
-              buildSalesOrderSummary({ salesorder_id: 'so-1', status: 'confirmed' }),
-              buildSalesOrderSummary({ salesorder_id: 'so-2', status: 'delivered' })
+              buildSalesOrderSummary({ salesorder_id: 'so-1', status: 'confirmed' })
             ],
-            page_context: { has_more_page: true }
+            page_context: { has_more_page: false }
           }),
           {
             status: 200,
@@ -46,12 +45,11 @@ describe('createZohoClient', () => {
         );
       }
 
-      if (url === 'https://www.zohoapis.com/inventory/v1/salesorders?organization_id=1234567890&page=2&per_page=200') {
+      if (url === 'https://www.zohoapis.com/inventory/v1/salesorders?organization_id=1234567890&page=1&per_page=200&status=packed') {
         return new Response(
           JSON.stringify({
             salesorders: [
-              buildSalesOrderSummary({ salesorder_id: 'so-3', status: 'packed' }),
-              buildSalesOrderSummary({ salesorder_id: 'so-4', status: 'cancelled' })
+              buildSalesOrderSummary({ salesorder_id: 'so-3', status: 'packed' })
             ],
             page_context: { has_more_page: false }
           }),
@@ -94,10 +92,10 @@ describe('createZohoClient', () => {
       'refresh_token=zoho-refresh-token&client_id=zoho-client-id&client_secret=zoho-client-secret&grant_type=refresh_token'
     );
 
-    expect(calls[1]?.init?.headers).toEqual({ Authorization: 'Zoho-oauthtoken fresh-access-token' });
-    expect(calls[2]?.init?.headers).toEqual({ Authorization: 'Zoho-oauthtoken fresh-access-token' });
-    expect(calls[3]?.init?.headers).toEqual({ Authorization: 'Zoho-oauthtoken fresh-access-token' });
-    expect(calls[4]?.init?.headers).toEqual({ Authorization: 'Zoho-oauthtoken fresh-access-token' });
+    expect(String(calls[1]?.input)).toBe('https://www.zohoapis.com/inventory/v1/salesorders?organization_id=1234567890&page=1&per_page=200&status=confirmed');
+    expect(String(calls[2]?.input)).toBe('https://www.zohoapis.com/inventory/v1/salesorders/so-1?organization_id=1234567890');
+    expect(String(calls[3]?.input)).toBe('https://www.zohoapis.com/inventory/v1/salesorders?organization_id=1234567890&page=1&per_page=200&status=packed');
+    expect(String(calls[4]?.input)).toBe('https://www.zohoapis.com/inventory/v1/salesorders/so-3?organization_id=1234567890');
   });
 
   it('uses the matching accounts domain for India tenants', async () => {
@@ -114,7 +112,14 @@ describe('createZohoClient', () => {
         });
       }
 
-      if (url === 'https://www.zohoapis.in/inventory/v1/salesorders?organization_id=1234567890&page=1&per_page=200') {
+      if (url === 'https://www.zohoapis.in/inventory/v1/salesorders?organization_id=1234567890&page=1&per_page=200&status=confirmed') {
+        return new Response(JSON.stringify({ salesorders: [], page_context: { has_more_page: false } }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
+      if (url === 'https://www.zohoapis.in/inventory/v1/salesorders?organization_id=1234567890&page=1&per_page=200&status=packed') {
         return new Response(JSON.stringify({ salesorders: [], page_context: { has_more_page: false } }), {
           status: 200,
           headers: { 'Content-Type': 'application/json' }
@@ -150,7 +155,14 @@ describe('createZohoClient', () => {
         });
       }
 
-      if (url === 'https://www.zohoapis.in/inventory/v1/salesorders?organization_id=1234567890&page=1&per_page=200') {
+      if (url === 'https://www.zohoapis.in/inventory/v1/salesorders?organization_id=1234567890&page=1&per_page=200&status=confirmed') {
+        return new Response(JSON.stringify({ salesorders: [], page_context: { has_more_page: false } }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
+      if (url === 'https://www.zohoapis.in/inventory/v1/salesorders?organization_id=1234567890&page=1&per_page=200&status=packed') {
         return new Response(JSON.stringify({ salesorders: [], page_context: { has_more_page: false } }), {
           status: 200,
           headers: { 'Content-Type': 'application/json' }
@@ -171,8 +183,79 @@ describe('createZohoClient', () => {
     await expect(client.fetchSalesOrders()).resolves.toEqual([]);
     expect(String(calls[0]?.input)).toBe('https://accounts.zoho.in/oauth/v2/token');
     expect(String(calls[1]?.input)).toBe(
-      'https://www.zohoapis.in/inventory/v1/salesorders?organization_id=1234567890&page=1&per_page=200'
+      'https://www.zohoapis.in/inventory/v1/salesorders?organization_id=1234567890&page=1&per_page=200&status=confirmed'
     );
+  });
+
+  it('fetches active order details in parallel within a page', async () => {
+    const fetcher: typeof fetch = async (input) => {
+      const url = String(input);
+
+      if (url === 'https://accounts.zoho.com/oauth/v2/token') {
+        return new Response(JSON.stringify({ access_token: 'fresh-access-token' }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
+      if (url === 'https://www.zohoapis.com/inventory/v1/salesorders?organization_id=1234567890&page=1&per_page=200&status=confirmed') {
+        return new Response(
+          JSON.stringify({
+            salesorders: [
+              buildSalesOrderSummary({ salesorder_id: 'so-1', status: 'confirmed' })
+            ],
+            page_context: { has_more_page: false }
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' }
+          }
+        );
+      }
+
+      if (url === 'https://www.zohoapis.com/inventory/v1/salesorders?organization_id=1234567890&page=1&per_page=200&status=packed') {
+        return new Response(
+          JSON.stringify({
+            salesorders: [
+              buildSalesOrderSummary({ salesorder_id: 'so-2', status: 'packed' })
+            ],
+            page_context: { has_more_page: false }
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' }
+          }
+        );
+      }
+
+      if (url === 'https://www.zohoapis.com/inventory/v1/salesorders/so-1?organization_id=1234567890') {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        return new Response(JSON.stringify({ salesorder: buildSalesOrder({ salesorder_id: 'so-1', status: 'confirmed' }) }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
+      if (url === 'https://www.zohoapis.com/inventory/v1/salesorders/so-2?organization_id=1234567890') {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        return new Response(JSON.stringify({ salesorder: buildSalesOrder({ salesorder_id: 'so-2', status: 'packed' }) }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
+      throw new Error(`Unexpected fetch: ${url}`);
+    };
+
+    const client = createZohoClient(config, fetcher);
+    const startedAt = Date.now();
+
+    await expect(client.fetchSalesOrders()).resolves.toEqual([
+      buildSalesOrder({ salesorder_id: 'so-1', status: 'confirmed' }),
+      buildSalesOrder({ salesorder_id: 'so-2', status: 'packed' })
+    ]);
+
+    expect(Date.now() - startedAt).toBeLessThan(140);
   });
 
   it('throws when the access token refresh fails', async () => {

@@ -132,8 +132,16 @@ export function createOrdersRouter(dispatchRepository: DispatchRepository, zohoS
       return;
     }
 
-    const data = await zohoSyncService.runManualSync();
-    response.status(200).json({ data });
+    void zohoSyncService.runManualSync().catch((error) => {
+      console.error('Manual Zoho sync failed', error);
+    });
+
+    response.status(202).json({
+      data: {
+        status: 'started',
+        lastSummary: zohoSyncService.getLastSummary()
+      }
+    });
   });
 
   return router;

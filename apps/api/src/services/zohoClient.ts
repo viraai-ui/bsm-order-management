@@ -33,35 +33,43 @@ export function createZohoClient(config: ZohoConfig, fetcher: Fetcher = fetch) {
   return {
     async fetchSalesOrders(): Promise<ZohoSalesOrder[]> {
       const accessToken = await refreshAccessToken(apiBaseUrl, config, fetcher);
-      const orders: ZohoSalesOrder[] = [];
-      let page = 1;
-      let hasMorePage = true;
+      const ordersById = new Map<string, ZohoSalesOrder>();
 
-      while (hasMorePage) {
-        const response = await fetcher(buildSalesOrdersUrl(apiBaseUrl, config.organizationId, page), {
-          headers: {
-            Authorization: `Zoho-oauthtoken ${accessToken}`
+      for (const status of activeStatuses) {
+        let page = 1;
+        let hasMorePage = true;
+
+        while (hasMorePage) {
+          const response = await fetcher(buildSalesOrdersUrl(apiBaseUrl, config.organizationId, page, status), {
+            headers: {
+              Authorization: `Zoho-oauthtoken ${accessToken}`
+            }
+          });
+
+          const payload = (await response.json()) as ZohoSalesOrdersResponse;
+
+          if (!response.ok) {
+            const errorMessage = payload.message ?? response.statusText ?? 'Unknown error';
+            throw new Error(`Failed to fetch Zoho sales orders page ${page} for status ${status}: ${errorMessage}`);
           }
-        });
 
-        const payload = (await response.json()) as ZohoSalesOrdersResponse;
+          const activeOrders = (payload.salesorders ?? []).filter((order) => activeStatuses.has(order.status.toLowerCase()));
+          const detailedActiveOrders = await Promise.all(
+            activeOrders.map((order) =>
+              fetchSalesOrderDetail(apiBaseUrl, config.organizationId, accessToken, order.salesorder_id, fetcher)
+            )
+          );
 
-        if (!response.ok) {
-          const errorMessage = payload.message ?? response.statusText ?? 'Unknown error';
-          throw new Error(`Failed to fetch Zoho sales orders page ${page}: ${errorMessage}`);
+          for (const order of detailedActiveOrders) {
+            ordersById.set(order.salesorder_id, order);
+          }
+
+          hasMorePage = payload.page_context?.has_more_page === true;
+          page += 1;
         }
-
-        const activeOrders = (payload.salesorders ?? []).filter((order) => activeStatuses.has(order.status.toLowerCase()));
-
-        for (const order of activeOrders) {
-          orders.push(await fetchSalesOrderDetail(apiBaseUrl, config.organizationId, accessToken, order.salesorder_id, fetcher));
-        }
-
-        hasMorePage = payload.page_context?.has_more_page === true;
-        page += 1;
       }
 
-      return orders;
+      return Array.from(ordersById.values());
     }
   };
 }
@@ -115,11 +123,12 @@ async function fetchSalesOrderDetail(
   return payload.salesorder;
 }
 
-function buildSalesOrdersUrl(apiBaseUrl: string, organizationId: string, page: number) {
+function buildSalesOrdersUrl(apiBaseUrl: string, organizationId: string, page: number, status: string) {
   const url = new URL(`${apiBaseUrl}/salesorders`);
   url.searchParams.set('organization_id', organizationId);
   url.searchParams.set('page', String(page));
   url.searchParams.set('per_page', String(SALES_ORDER_PAGE_SIZE));
+  url.searchParams.set('status', status);
   return url.toString();
 }
 
