@@ -64,4 +64,53 @@ describe('QrOrdersPage', () => {
     expect(await screen.findByText('SO-24099')).toBeInTheDocument();
     expect(screen.queryByText('SO-24018')).not.toBeInTheDocument();
   });
+
+  it('shows a single QR Code Generator title with a working grid/list toggle', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        data: [
+          {
+            id: 'order-active',
+            salesOrderNumber: 'SO-24018',
+            customerName: 'Anand Cooling Towers',
+            destination: 'Delhi NCR',
+            deliveryDate: '2026-04-13T08:30:00Z',
+            status: 'Awaiting media',
+            machineUnitCount: 2,
+            qrCodeCount: 1,
+            imageCount: 0,
+            videoCount: 0,
+            requiredVideoCount: 2,
+            machineUnits: [],
+          },
+        ],
+      }),
+    }));
+
+    render(
+      <MemoryRouter initialEntries={['/qr']}>
+        <Routes>
+          <Route path="/qr" element={<QrOrdersPage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByRole('heading', { name: 'QR Code Generator' })).toBeInTheDocument();
+    expect(screen.queryByText('Order-first QR queue')).not.toBeInTheDocument();
+    expect(screen.queryByText('Coming soon')).not.toBeInTheDocument();
+
+    const gridToggle = screen.getByRole('button', { name: 'Grid View' });
+    const listToggle = screen.getByRole('button', { name: 'List View' });
+    expect(gridToggle).toHaveClass('active');
+    expect(listToggle).not.toHaveClass('active');
+    expect(screen.getByRole('link', { name: 'Open QR Workflow' })).toHaveClass('premium-action-button');
+    expect(screen.getByText('SO-24018').closest('article')).toHaveClass('qr-order-card--grid');
+
+    await userEvent.click(listToggle);
+
+    expect(listToggle).toHaveClass('active');
+    expect(gridToggle).not.toHaveClass('active');
+    expect(screen.getByText('SO-24018').closest('article')).toHaveClass('qr-order-card--list');
+  });
 });

@@ -10,13 +10,24 @@ const filterOptions = [
   { value: 'ALL', label: 'All' },
 ] as const;
 
+const viewOptions = [
+  { value: 'GRID', label: 'Grid View' },
+  { value: 'LIST', label: 'List View' },
+] as const;
+
 type QrFilter = typeof filterOptions[number]['value'];
+type QrViewMode = typeof viewOptions[number]['value'];
+
+function getQrStatusLabel(order: OrderSummary) {
+  return isQrComplete(order) ? 'QR Generated' : 'Action Needed';
+}
 
 export function QrOrdersPage() {
   const [orders, setOrders] = useState<OrderSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [stageFilter, setStageFilter] = useState<QrFilter>('ACTIVE');
+  const [viewMode, setViewMode] = useState<QrViewMode>('GRID');
 
   const loadOrders = useCallback(async () => {
     setLoading(true);
@@ -48,17 +59,35 @@ export function QrOrdersPage() {
     return orders;
   }, [orders, stageFilter]);
 
+  const isGridView = viewMode === 'GRID';
+
   return (
-    <OperationsLayout>
-      <main className="main-panel">
-        <header className="topbar">
+    <OperationsLayout hideRail>
+      <main className="main-panel qr-orders-page">
+        <header className="topbar qr-page-header">
           <div>
-            <p className="eyebrow">QR code generator</p>
-            <h2>Order-first QR queue</h2>
+            <h2>QR Code Generator</h2>
           </div>
-          <button className="ghost-button" type="button" onClick={() => void loadOrders()} disabled={loading}>
-            {loading ? 'Refreshing…' : 'Refresh'}
-          </button>
+
+          <div className="topbar-actions qr-page-header-actions">
+            <div className="filter-row" role="group" aria-label="QR view mode">
+              {viewOptions.map((option) => (
+                <button
+                  key={option.value}
+                  aria-pressed={viewMode === option.value}
+                  className={`filter-chip ${viewMode === option.value ? 'active' : ''}`}
+                  type="button"
+                  onClick={() => setViewMode(option.value)}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+
+            <button className="ghost-button" type="button" onClick={() => void loadOrders()} disabled={loading}>
+              {loading ? 'Refreshing…' : 'Refresh'}
+            </button>
+          </div>
         </header>
 
         {error ? <section className="detail-panel" role="alert"><p className="muted-copy">{error}</p></section> : null}
@@ -82,29 +111,44 @@ export function QrOrdersPage() {
         </section>
 
         <section className="detail-panel">
-          <div className="order-list">
+          <div className={isGridView ? 'qr-orders-collection qr-orders-collection--grid' : 'qr-orders-collection qr-orders-collection--list'}>
             {loading ? <p className="muted-copy">Loading QR queue…</p> : null}
             {!loading && visibleOrders.length === 0 ? <p className="muted-copy">No orders match this QR stage filter.</p> : null}
             {visibleOrders.map((order) => (
-              <article className="order-list-card" key={order.id}>
-                <div className="order-list-card-main">
-                  <div>
+              <article className={isGridView ? 'qr-order-card qr-order-card--grid' : 'qr-order-card qr-order-card--list'} key={order.id}>
+                <div className="qr-order-card__main">
+                  <div className="qr-order-card__copy">
                     <p className="eyebrow">{order.salesOrderNumber}</p>
                     <h3>{order.customerName}</h3>
                     <p className="muted-copy">{order.qrCodeCount}/{order.machineUnitCount} machine units already have QR codes.</p>
                     <p className="muted-copy">{getOrderStageSummary(order)}</p>
                   </div>
+
                   <div className="order-badges">
                     <span className={`pill ${isQrComplete(order) ? 'tone-live' : 'tone-urgent'}`}>
-                      {isQrComplete(order) ? 'QR ready' : 'Action needed'}
+                      {getQrStatusLabel(order)}
                     </span>
                     <span className={`pill ${getOrderStageTone(order)}`}>
                       {getOrderStageLabel(order)}
                     </span>
                   </div>
                 </div>
+
+                {isGridView ? (
+                  <div className="qr-order-card__stats">
+                    <div>
+                      <span className="meta-label">Destination</span>
+                      <strong>{order.destination || 'Pending dispatch details'}</strong>
+                    </div>
+                    <div>
+                      <span className="meta-label">Current status</span>
+                      <strong>{order.status}</strong>
+                    </div>
+                  </div>
+                ) : null}
+
                 <div className="order-card-actions">
-                  <Link className="ghost-button" to={`/qr/${order.id}`}>Open QR workflow</Link>
+                  <Link className="premium-action-button" to={`/qr/${order.id}`}>Open QR Workflow</Link>
                   {getOrderStageCode(order) !== 'QR_QUEUE' ? <Link className="ghost-button" to={`/orders/${order.id}`}>Open order</Link> : null}
                 </div>
               </article>

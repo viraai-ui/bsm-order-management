@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { OperationsLayout } from '../../components/OperationsLayout';
 import {
@@ -8,7 +8,15 @@ import {
   generateSerialForMachineUnit,
   type OrderDetail,
 } from '../../lib/apiClient';
-import { getOrderStageLabel, getOrderStageSummary, getOrderStageTone, isQrComplete } from '../orders/pipelineStage';
+import {
+  buildGeneratedQrAssets,
+  buildQrPreviewUrl,
+  downloadGeneratedQrAsset,
+  runGenerateQrWorkflow,
+} from './qrWorkflow';
+
+type QrDetailViewMode = 'card' | 'list';
+type OrderMachineUnit = OrderDetail['machineUnits'][number];
 
 export function QrOrderDetailPage() {
   const { id = '' } = useParams();
@@ -17,6 +25,8 @@ export function QrOrderDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [busyMachineId, setBusyMachineId] = useState<string | null>(null);
   const [bulkBusy, setBulkBusy] = useState(false);
+  const [viewMode, setViewMode] = useState<QrDetailViewMode>('card');
+  const [previewUrls, setPreviewUrls] = useState<Record<string, string>>({});
 
   const loadOrder = useCallback(async () => {
     setLoading(true);
@@ -36,21 +46,78 @@ export function QrOrderDetailPage() {
     void loadOrder();
   }, [loadOrder]);
 
-  async function refreshAfterMachineAction(machineId: string, run: () => Promise<unknown>) {
-    setBusyMachineId(machineId);
+  const generatedAssets = useMemo(() => {
+    if (!order) return [];
+    return buildGeneratedQrAssets(order.machineUnits, order.salesOrderNumber);
+  }, [order]);
+
+  useEffect(() => {
+    let active = true;
+
+    if (generatedAssets.length === 0) {
+      setPreviewUrls({});
+      return () => {
+        active = false;
+      };
+    }
+
+    void Promise.all(generatedAssets.map(async (asset) => [asset.value, await buildQrPreviewUrl(asset)] as const)).then((entries) => {
+      if (!active) return;
+      setPreviewUrls(Object.fromEntries(entries));
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [generatedAssets]);
+
+  const refreshOrder = useCallback(async () => {
+    setOrder(await fetchOrderById(id));
+  }, [id]);
+
+  const handleGenerateForMachine = useCallback(async (machine: OrderMachineUnit) => {
+    setBusyMachineId(machine.id);
     setError(null);
 
     try {
-      await run();
-      setOrder(await fetchOrderById(id));
+      await runGenerateQrWorkflow(machine, {
+        generateSerial: generateSerialForMachineUnit,
+        generateQr: generateQrForMachineUnit,
+      });
+      await refreshOrder();
     } catch (actionError) {
       setError(actionError instanceof Error ? actionError.message : 'Unable to update QR workflow');
     } finally {
       setBusyMachineId(null);
     }
-  }
+  }, [refreshOrder]);
 
-  async function handleGenerateAll() {
+  const handleDownloadQr = useCallback(async (machine: OrderMachineUnit) => {
+    if (!order) return;
+
+    const asset = buildGeneratedQrAssets([machine], order.salesOrderNumber)[0];
+    if (!asset) return;
+
+    try {
+      await downloadGeneratedQrAsset(asset);
+    } catch (downloadError) {
+      setError(downloadError instanceof Error ? downloadError.message : 'Unable to download QR');
+    }
+  }, [order]);
+
+  const handleDownloadAll = useCallback(async () => {
+    if (generatedAssets.length === 0) return;
+
+    try {
+      for (const asset of generatedAssets) {
+        await downloadGeneratedQrAsset(asset);
+      }
+    } catch (downloadError) {
+      setError(downloadError instanceof Error ? downloadError.message : 'Unable to download all QR assets');
+    }
+  }, [generatedAssets]);
+
+  const handleGenerateAll = useCallback(async () => {
     setBulkBusy(true);
     setError(null);
 
@@ -61,17 +128,78 @@ export function QrOrderDetailPage() {
     } finally {
       setBulkBusy(false);
     }
+  }, [id]);
+
+  function renderPreview(machine: OrderMachineUnit) {
+    if (!machine.qrCodeValue) {
+      return (
+        <div className="qr-preview-placeholder">
+          <span className="qr-preview-placeholder__label">QR preview pending</span>
+        </div>
+      );
+    }
+
+    const previewUrl = previewUrls[machine.qrCodeValue];
+    if (!previewUrl) {
+      return <p className="muted-copy">Loading QR preview…</p>;
+    }
+
+    return <img className="qr-preview-image" src={previewUrl} alt={`QR preview for ${machine.productName}`} />;
+  }
+
+  function renderMachine(machine: OrderMachineUnit) {
+    const hasGeneratedQr = Boolean(machine.serialNumber && machine.qrCodeValue);
+    const machineStatusLabel = hasGeneratedQr ? 'QR Generated' : 'QR Pending';
+    const serialCopy = machine.serialNumber ? `Serial ${machine.serialNumber}` : 'Serial pending';
+    const isBusy = busyMachineId === machine.id;
+
+    return (
+      <article className={viewMode === 'card' ? 'qr-machine-card qr-machine-card--card' : 'qr-machine-card qr-machine-card--list'} key={machine.id}>
+        <div className="qr-machine-card__body">
+          <div className="qr-machine-card__info">
+            <div className="qr-machine-card__summary">
+              <div>
+                <h3>{machine.productName}</h3>
+                <p className="muted-copy">{serialCopy}</p>
+              </div>
+              <span className={`pill ${hasGeneratedQr ? 'tone-live' : 'tone-urgent'}`}>{machineStatusLabel}</span>
+            </div>
+
+            <div className="qr-machine-card__actions">
+              <button
+                className="premium-action-button"
+                type="button"
+                onClick={() => void handleGenerateForMachine(machine)}
+                disabled={isBusy || bulkBusy}
+              >
+                {isBusy ? 'Generating…' : 'Generate QR'}
+              </button>
+              <button
+                className="ghost-button"
+                type="button"
+                onClick={() => void handleDownloadQr(machine)}
+                disabled={!hasGeneratedQr || isBusy || bulkBusy}
+              >
+                Download QR
+              </button>
+            </div>
+          </div>
+
+          <div className="qr-machine-card__preview">
+            <p className="eyebrow">QR Preview</p>
+            {renderPreview(machine)}
+          </div>
+        </div>
+      </article>
+    );
   }
 
   return (
-    <OperationsLayout>
-      <main className="main-panel">
-        <header className="topbar">
+    <OperationsLayout hideRail>
+      <main className="main-panel qr-order-detail-page">
+        <header className="topbar qr-page-header">
           <div>
-            <p className="eyebrow">QR code generator</p>
             <h2>{order?.salesOrderNumber ?? id}</h2>
-            <p className="page-subtitle">Generate QR assets from the order and drill into individual machine units only when needed.</p>
-            {order ? <p className="muted-copy">{getOrderStageSummary(order)}</p> : null}
           </div>
           <div className="topbar-actions">
             <button className="primary-button" type="button" onClick={() => void handleGenerateAll()} disabled={bulkBusy || loading}>
@@ -85,45 +213,45 @@ export function QrOrderDetailPage() {
         {error ? <section className="detail-panel" role="alert"><p className="muted-copy">{error}</p></section> : null}
 
         {order ? (
-          <section className="detail-panel">
-            <div className="detail-panel-header">
-              <div>
-                <p className="eyebrow">Machine units</p>
-                <h3>{order.qrCodeCount}/{order.machineUnitCount} QR ready</h3>
+          <>
+            <section className="detail-panel qr-detail-toolbar">
+              <div className="filter-row" role="group" aria-label="QR detail view toggle">
+                <button
+                  className={viewMode === 'card' ? 'filter-chip active' : 'filter-chip'}
+                  type="button"
+                  aria-pressed={viewMode === 'card'}
+                  onClick={() => setViewMode('card')}
+                >
+                  Card View
+                </button>
+                <button
+                  className={viewMode === 'list' ? 'filter-chip active' : 'filter-chip'}
+                  type="button"
+                  aria-pressed={viewMode === 'list'}
+                  onClick={() => setViewMode('list')}
+                >
+                  List View
+                </button>
               </div>
-              <div className="order-badges">
-                <span className={`pill ${isQrComplete(order) ? 'tone-live' : 'tone-urgent'}`}>
-                  {isQrComplete(order) ? 'QR complete' : 'QR in progress'}
-                </span>
-                <span className={`pill ${getOrderStageTone(order)}`}>{getOrderStageLabel(order)}</span>
+            </section>
+
+            <section className="detail-panel">
+              <div className={viewMode === 'card' ? 'qr-machine-grid qr-machine-grid--card' : 'qr-machine-grid qr-machine-grid--list'}>
+                {order.machineUnits.map((machine) => renderMachine(machine))}
               </div>
-            </div>
-            <div className="order-list compact">
-              {order.machineUnits.map((machine) => (
-                <article className="order-list-card compact" key={machine.id}>
-                  <div className="order-list-card-main">
-                    <div>
-                      <p className="eyebrow">{machine.id}</p>
-                      <h3>{machine.productName}</h3>
-                      <p className="muted-copy">{machine.serialNumber ? `Serial ${machine.serialNumber}` : 'Serial pending'}</p>
-                    </div>
-                    <span className={`pill ${machine.qrReady ? 'tone-live' : 'tone-urgent'}`}>
-                      {machine.qrReady ? 'QR ready' : 'QR pending'}
-                    </span>
-                  </div>
-                  <div className="order-card-actions">
-                    <button className="ghost-button" type="button" onClick={() => void refreshAfterMachineAction(machine.id, () => generateSerialForMachineUnit(machine.id))} disabled={busyMachineId === machine.id || bulkBusy}>
-                      {busyMachineId === machine.id ? 'Working…' : 'Generate serial'}
-                    </button>
-                    <button className="ghost-button" type="button" onClick={() => void refreshAfterMachineAction(machine.id, () => generateQrForMachineUnit(machine.id))} disabled={busyMachineId === machine.id || bulkBusy}>
-                      {busyMachineId === machine.id ? 'Working…' : 'Generate QR'}
-                    </button>
-                    <Link className="ghost-button" to={`/machine-units/${machine.id}`}>Machine detail</Link>
-                  </div>
-                </article>
-              ))}
-            </div>
-          </section>
+
+              <div className="order-card-actions qr-detail-footer-actions">
+                <button
+                  className="primary-button"
+                  type="button"
+                  onClick={() => void handleDownloadAll()}
+                  disabled={generatedAssets.length === 0 || bulkBusy}
+                >
+                  Download All
+                </button>
+              </div>
+            </section>
+          </>
         ) : null}
       </main>
     </OperationsLayout>

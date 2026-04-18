@@ -12,11 +12,12 @@ const navItems: Array<{ label: string; to: string; end?: boolean }> = [
 
 type OperationsLayoutProps = PropsWithChildren<{
   rail?: ReactNode;
+  hideRail?: boolean;
 }>;
 
-export function OperationsLayout({ children, rail }: OperationsLayoutProps) {
+export function OperationsLayout({ children, rail, hideRail = false }: OperationsLayoutProps) {
   return (
-    <div className="dashboard-shell">
+    <div className={hideRail ? 'dashboard-shell dashboard-shell--no-rail' : 'dashboard-shell'}>
       <aside className="sidebar">
         <div>
           <p className="eyebrow">BSM Ops</p>
@@ -38,15 +39,17 @@ export function OperationsLayout({ children, rail }: OperationsLayoutProps) {
 
       {children}
 
-      <aside className="rail">
-        {rail ?? (
-          <section className="rail-panel">
-            <p className="eyebrow">Status</p>
-            <h3>Coming soon</h3>
-            <p className="muted-copy">This section is wired into navigation now. The full workflow screen has not been built yet.</p>
-          </section>
-        )}
-      </aside>
+      {hideRail ? null : (
+        <aside className="rail">
+          {rail ?? (
+            <section className="rail-panel">
+              <p className="eyebrow">Status</p>
+              <h3>Coming soon</h3>
+              <p className="muted-copy">This section is wired into navigation now. The full workflow screen has not been built yet.</p>
+            </section>
+          )}
+        </aside>
+      )}
     </div>
   );
 }

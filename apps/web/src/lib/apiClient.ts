@@ -33,6 +33,7 @@ export type MachineUnitDetail = {
   scheduledFor: string;
   productName: string;
   serialNumber: string | null;
+  qrCodeValue: string | null;
   qrReady: boolean;
   mediaComplete: boolean;
   workflowStage: 'Packing / Testing' | 'Media Uploaded' | 'Ready for Dispatch' | 'Dispatched';
@@ -52,6 +53,7 @@ export type OrderMachineSummary = {
   quantity: number;
   sku: string | null;
   serialNumber: string | null;
+  qrCodeValue: string | null;
   qrReady: boolean;
   imageCount: number;
   videoCount: number;
@@ -294,7 +296,8 @@ function normalizeMachineSummary(machine: Record<string, unknown>, index: number
   const requiredVideoCount = typeof machine.requiredVideoCount === 'number' ? machine.requiredVideoCount : 0;
   const workflowCode = normalizeWorkflowCode(machine.workflowStage);
   const serialNumber = typeof machine.serialNumber === 'string' ? machine.serialNumber : null;
-  const qrReady = Boolean(machine.qrCodeValue) || (typeof machine.qrCodeCount === 'number' && machine.qrCodeCount > 0);
+  const qrCodeValue = typeof machine.qrCodeValue === 'string' ? machine.qrCodeValue : null;
+  const qrReady = Boolean(qrCodeValue) || (typeof machine.qrCodeCount === 'number' && machine.qrCodeCount > 0);
 
   return {
     id: String(machine.id ?? `machine-${index + 1}`),
@@ -303,6 +306,7 @@ function normalizeMachineSummary(machine: Record<string, unknown>, index: number
     quantity: typeof machine.quantity === 'number' ? machine.quantity : 1,
     sku: typeof machine.sku === 'string' ? machine.sku : null,
     serialNumber,
+    qrCodeValue,
     qrReady,
     imageCount,
     videoCount,
@@ -432,6 +436,7 @@ export function mapMachineUnitDetail(
     scheduledFor: formatSchedule(machine.scheduledFor),
     productName: machine.productName ?? 'Machine unit',
     serialNumber: machine.serialNumber ?? null,
+    qrCodeValue: machine.qrCodeValue ?? null,
     qrReady: Boolean(machine.qrCodeValue),
     mediaComplete: (machine.imageCount ?? 0) >= 1 && (machine.videoCount ?? 0) >= (machine.requiredVideoCount ?? 0),
     workflowStage: mapWorkflowStage(workflowCode),
